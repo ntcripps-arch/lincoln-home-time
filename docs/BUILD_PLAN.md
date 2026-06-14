@@ -29,7 +29,7 @@ through RLS as the signed-in user.
   (preserve old versions). Locked versions are immutable (DB-enforced). Write audit
   on lock/unlock/version change.
 
-## 4. Time requests + approvals  — /exceptions
+## 4. Time requests + approvals  — /requests
 - **Inbox**: pending/countered requests with requester avatar + name, dates, type,
   note. Admin actions: **Approve**, **Deny**, **Propose alternative** (date picker
   + one note) → call `decide_time_request`. After: `notify` type `request_decided`.

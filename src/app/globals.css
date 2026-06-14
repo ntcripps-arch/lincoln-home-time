@@ -5,14 +5,44 @@
 /* Calm, family-calendar palette — intentionally not "legal/court app" looking. */
 @layer base {
   :root {
-    --background: 40 33% 99%; --foreground: 215 25% 20%;
-    --card: 0 0% 100%; --card-foreground: 215 25% 20%;
-    --primary: 199 70% 45%; --primary-foreground: 0 0% 100%;
-    --muted: 210 20% 96%; --muted-foreground: 215 15% 45%;
-    --accent: 160 40% 94%; --accent-foreground: 215 25% 20%;
-    --border: 214 20% 90%; --input: 214 20% 90%; --ring: 199 70% 45%;
-    --radius: 0.75rem;
+    --background: 40 33% 99%;      /* warm paper */
+    --foreground: 222 24% 20%;     /* slate ink */
+    --card: 0 0% 100%;
+    --card-foreground: 222 24% 20%;
+    --muted: 220 20% 96%;
+    --muted-foreground: 220 12% 46%;
+    --border: 220 18% 90%;
+    --input: 220 18% 90%;
+    --primary: 193 60% 34%;        /* deep teal — buttons/links (hue-clear of the blue household) */
+    --primary-foreground: 0 0% 100%;
+    --accent: 195 40% 95%;
+    --accent-foreground: 222 24% 20%;
+    --ring: 193 60% 42%;
+    --radius: 0.875rem;            /* soft, friendly */
+
+    /* household colors (legend/defaults; the real values come from households.color in the DB) */
+    --household-dad: 142 33% 46%;  /* Clearman green  #4f9d6a */
+    --household-mom: 217 58% 55%;  /* Barrett blue    #4a7fd0 */
+
+    /* Device safe-area insets, surfaced as vars so utilities (and the preview
+       screenshot) can read or override them. On a notched phone these resolve
+       to the real insets; on desktop / non-notched they are 0. */
+    --sat: env(safe-area-inset-top);
+    --sar: env(safe-area-inset-right);
+    --sab: env(safe-area-inset-bottom);
+    --sal: env(safe-area-inset-left);
   }
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
+}
+
+@layer utilities {
+  /* Safe-area helpers — pad fixed chrome (top bar / bottom nav) clear of the
+     notch and home indicator. */
+  .pt-safe { padding-top: var(--sat); }
+  .pr-safe { padding-right: var(--sar); }
+  .pb-safe { padding-bottom: var(--sab); }
+  .pl-safe { padding-left: var(--sal); }
+  /* Scroll padding so page content clears the fixed bottom nav (≈nav height + inset). */
+  .pb-nav  { padding-bottom: calc(var(--sab) + 4.75rem); }
 }

@@ -62,7 +62,7 @@ await supabase.functions.invoke('notify', { body: { type, /* requestId|tripId|in
 1. Auth: `/login` + `/auth/callback`, the invite-accept page `/invite`.
 2. `/calendar` month view (the centerpiece) + agenda; layer filters.
 3. `/parenting-plan` (view, version history, lock/unlock with warning).
-4. `/exceptions` = time-request inbox + submit form + approve/deny/counter.
+4. `/requests` = time-request inbox + submit form + approve/deny/counter.
 5. `/uploads` + `/school-calendars` (upload → review table → approve).
 6. `/settings` (avatar upload to the `avatars` bucket) + `/invite` (admin sends).
 7. Trips UI (entry with flight/lodging segments; surfaced on the calendar).
