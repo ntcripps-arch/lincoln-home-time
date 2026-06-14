@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
             <p style="background:#f1f6f9;padding:12px;border-radius:8px">
               <b>${r.title}</b> (${r.request_type})<br>${fmt(r.start_date)} – ${fmt(r.end_date)}
               ${r.note ? `<br><span style="color:#5a6573">${r.note}</span>` : ''}</p>
-            <p><a href="${SITE_URL}/exceptions" style="color:#2b8fb3">Review &amp; respond →</a></p>`));
+            <p><a href="${SITE_URL}/requests" style="color:#2b8fb3">Review &amp; respond →</a></p>`));
         break;
       }
 
@@ -112,7 +112,7 @@ Deno.serve(async (req) => {
           page(`Your request was ${headline}`, `
             <p><b>${r.title}</b></p>${counter}
             ${r.decision_note ? `<p style="color:#5a6573">“${r.decision_note}”</p>` : ''}
-            <p><a href="${SITE_URL}/exceptions" style="color:#2b8fb3">Open calendar →</a></p>`));
+            <p><a href="${SITE_URL}/requests" style="color:#2b8fb3">View your request →</a></p>`));
         break;
       }
 
