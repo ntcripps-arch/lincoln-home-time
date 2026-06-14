@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Calm, family-calendar palette — intentionally not "legal/court app" looking. */
+@layer base {
+  :root {
+    --background: 40 33% 99%; --foreground: 215 25% 20%;
+    --card: 0 0% 100%; --card-foreground: 215 25% 20%;
+    --primary: 199 70% 45%; --primary-foreground: 0 0% 100%;
+    --muted: 210 20% 96%; --muted-foreground: 215 15% 45%;
+    --accent: 160 40% 94%; --accent-foreground: 215 25% 20%;
+    --border: 214 20% 90%; --input: 214 20% 90%; --ring: 199 70% 45%;
+    --radius: 0.75rem;
+  }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
