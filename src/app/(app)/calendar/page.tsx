@@ -14,7 +14,7 @@ export default async function CalendarPage() {
 
   const { data: membership } = await supabase
     .from('family_members')
-    .select('family_id')
+    .select('family_id, role')
     .eq('profile_id', user.id)
     .limit(1)
     .maybeSingle();
@@ -40,7 +40,7 @@ export default async function CalendarPage() {
       .eq('status', 'approved'),
     supabase
       .from('manual_events')
-      .select('id,title,date,start_time,end_time,all_day,location,notes,category')
+      .select('id,title,date,start_time,end_time,all_day,location,notes,category,created_by')
       .eq('family_id', familyId),
     supabase.from('trips').select('*, trip_segments(*)').eq('family_id', familyId),
   ]);
@@ -68,6 +68,8 @@ export default async function CalendarPage() {
       events={(eventsRes.data ?? []) as ManualEventRow[]}
       trips={(tripsRes.data ?? []) as TripWithSegments[]}
       hasActivePlan={Boolean(planRes.data?.id)}
+      currentUserId={user.id}
+      isAdmin={(membership.role as string) === 'admin'}
       today={today}
       initialYear={y}
       initialMonth={m}

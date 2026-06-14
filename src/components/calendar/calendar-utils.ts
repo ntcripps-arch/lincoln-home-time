@@ -27,8 +27,22 @@ export interface ManualEventRow {
   location: string | null;
   notes: string | null;
   category: string;
+  created_by: string | null;
 }
 export type TripWithSegments = Trip & { trip_segments: TripSegment[] };
+
+// manual_category enum, verbatim from 0001_init.sql.
+export const MANUAL_CATEGORIES: { value: string; label: string }[] = [
+  { value: 'sports', label: 'Sports' },
+  { value: 'performance', label: 'Performance' },
+  { value: 'appointment', label: 'Appointment' },
+  { value: 'travel', label: 'Travel' },
+  { value: 'reminder', label: 'Reminder' },
+  { value: 'other', label: 'Other' },
+];
+export function manualCategoryLabel(c: string): string {
+  return MANUAL_CATEGORIES.find((x) => x.value === c)?.label ?? c;
+}
 
 // ---- Constants ---------------------------------------------------------------
 export const MONTH_NAMES = [

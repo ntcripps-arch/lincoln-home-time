@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { applyExceptions, eachDay, generateBaseline } from '@/lib/rules-engine';
 import type { ExceptionRow, Household, ISODate, ScheduleRule } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { DaySheet } from './day-sheet';
+import { EventForm } from './event-form';
 import {
   buildRangeMap, formatClock, formatMonthLabel, initial, isSameMonth, LAYER_META, LAYER_ORDER,
   monthGrid, tintStyle, WEEKDAYS, weekdayShort, type LayerKey, type ManualEventRow,
@@ -20,13 +21,15 @@ interface CalendarViewProps {
   events: ManualEventRow[];
   trips: TripWithSegments[];
   hasActivePlan: boolean;
+  currentUserId: string;
+  isAdmin: boolean;
   today: ISODate;
   initialYear: number;
   initialMonth: number;
 }
 
 export function CalendarView({
-  households, rules, exceptions, schoolDates, events, trips, hasActivePlan, today, initialYear, initialMonth,
+  households, rules, exceptions, schoolDates, events, trips, hasActivePlan, currentUserId, isAdmin, today, initialYear, initialMonth,
 }: CalendarViewProps) {
   const [view, setView] = useState<'month' | 'agenda'>('month');
   const [year, setYear] = useState(initialYear);
@@ -35,6 +38,16 @@ export function CalendarView({
     parenting: true, school: true, events: true, trips: true,
   });
   const [selectedDate, setSelectedDate] = useState<ISODate | null>(null);
+  const [eventForm, setEventForm] = useState<{ mode: 'create' | 'edit'; date: ISODate; event?: ManualEventRow } | null>(null);
+
+  function addEvent(date: ISODate) {
+    setSelectedDate(null);
+    setEventForm({ mode: 'create', date });
+  }
+  function editEvent(event: ManualEventRow) {
+    setSelectedDate(null);
+    setEventForm({ mode: 'edit', date: event.date, event });
+  }
 
   const householdById = useMemo(() => new Map(households.map((h) => [h.id, h])), [households]);
   const grid = useMemo(() => monthGrid(year, month), [year, month]);
@@ -101,7 +114,7 @@ export function CalendarView({
 
   return (
     <div className="space-y-4">
-      {/* View toggle */}
+      {/* View toggle + add event */}
       <div className="flex items-center justify-between">
         <div className="inline-flex rounded-lg border border-border bg-muted p-0.5">
           {(['month', 'agenda'] as const).map((v) => (
@@ -119,6 +132,14 @@ export function CalendarView({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={() => addEvent(today)}
+          className="flex min-h-[2.5rem] items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+        >
+          <Plus className="h-4 w-4" />
+          Event
+        </button>
       </div>
 
       {/* Legend */}
@@ -321,7 +342,20 @@ export function CalendarView({
           school={schoolByDate.get(selectedDate) ?? []}
           events={eventsByDate.get(selectedDate) ?? []}
           trips={tripsByDate.get(selectedDate) ?? []}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          onAddEvent={addEvent}
+          onEditEvent={editEvent}
           onClose={() => setSelectedDate(null)}
+        />
+      )}
+
+      {eventForm && (
+        <EventForm
+          mode={eventForm.mode}
+          date={eventForm.date}
+          event={eventForm.event}
+          onClose={() => setEventForm(null)}
         />
       )}
     </div>

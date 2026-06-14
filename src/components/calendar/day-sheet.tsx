@@ -1,12 +1,14 @@
 'use client';
 
-import { Bed, Car, MapPin, Plane } from 'lucide-react';
+import { useState, useTransition } from 'react';
+import { Bed, Car, MapPin, Pencil, Plane, Plus, Trash2 } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import type { DayAssignment, ExceptionRow, Household, ISODate, SegmentType, TripSegment } from '@/lib/types';
 import {
-  exceptionTypeLabel, formatClock, formatFullDate, formatStamp,
+  exceptionTypeLabel, formatClock, formatFullDate, formatStamp, manualCategoryLabel,
   schoolCategoryLabel, type ManualEventRow, type SchoolDateRow, type TripWithSegments,
 } from './calendar-utils';
+import { deleteEvent } from './event-actions';
 
 interface DaySheetProps {
   date: ISODate;
@@ -17,6 +19,10 @@ interface DaySheetProps {
   school: SchoolDateRow[];
   events: ManualEventRow[];
   trips: TripWithSegments[];
+  currentUserId: string;
+  isAdmin: boolean;
+  onAddEvent: (date: ISODate) => void;
+  onEditEvent: (event: ManualEventRow) => void;
   onClose: () => void;
 }
 
@@ -28,12 +34,11 @@ const SEGMENT_ICON: Record<SegmentType, typeof Plane> = {
 };
 
 export function DaySheet({
-  date, day, household, households, exceptions, school, events, trips, onClose,
+  date, day, household, households, exceptions, school, events, trips,
+  currentUserId, isAdmin, onAddEvent, onEditEvent, onClose,
 }: DaySheetProps) {
   const householdName = (id: string | null | undefined) =>
     households.find((h) => h.id === id)?.name ?? 'Unassigned';
-
-  const nothingElse = school.length === 0 && events.length === 0 && trips.length === 0;
 
   return (
     <BottomSheet title={formatFullDate(date)} onClose={onClose}>
@@ -69,23 +74,31 @@ export function DaySheet({
           ))}
         </section>
 
+        {/* Events — always shown so you can add one for this day */}
+        <Section title="Events">
+          {events.map((e) => (
+            <EventRow
+              key={e.id}
+              event={e}
+              canManage={isAdmin || e.created_by === currentUserId}
+              onEdit={() => onEditEvent(e)}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => onAddEvent(date)}
+            className="flex min-h-[2.5rem] w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-sm font-medium text-muted-foreground transition hover:bg-muted"
+          >
+            <Plus className="h-4 w-4" />
+            Add event
+          </button>
+        </Section>
+
         {school.length > 0 && (
           <Section title="School">
             {school.map((s) => (
               <Row key={s.id} dot="bg-amber-500" title={s.title} sub={schoolCategoryLabel(s.category)} note={s.notes} />
             ))}
-          </Section>
-        )}
-
-        {events.length > 0 && (
-          <Section title="Events">
-            {events.map((e) => {
-              const time = e.all_day
-                ? 'All day'
-                : [formatClock(e.start_time), formatClock(e.end_time)].filter(Boolean).join(' – ');
-              const sub = [time, e.location].filter(Boolean).join(' · ');
-              return <Row key={e.id} dot="bg-violet-500" title={e.title} sub={sub || null} note={e.notes} />;
-            })}
           </Section>
         )}
 
@@ -115,8 +128,6 @@ export function DaySheet({
             ))}
           </Section>
         )}
-
-        {nothingElse && <p className="text-sm text-muted-foreground">Nothing else scheduled this day.</p>}
       </div>
     </BottomSheet>
   );
@@ -128,6 +139,49 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
       <div className="space-y-2">{children}</div>
     </section>
+  );
+}
+
+function EventRow({ event, canManage, onEdit }: { event: ManualEventRow; canManage: boolean; onEdit: () => void }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const time = event.all_day
+    ? 'All day'
+    : [formatClock(event.start_time), formatClock(event.end_time)].filter(Boolean).join(' – ');
+  const sub = [time, event.location, manualCategoryLabel(event.category)].filter(Boolean).join(' · ');
+
+  return (
+    <div className="flex gap-2.5">
+      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground">{event.title}</p>
+        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+        {event.notes && <p className="text-xs text-muted-foreground">{event.notes}</p>}
+        {error && <p className="text-xs text-rose-700">{error}</p>}
+        {canManage && (
+          <div className="mt-1 flex gap-3">
+            <button type="button" onClick={onEdit} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await deleteEvent({ id: event.id });
+                  if ('error' in res) setError(res.error);
+                })
+              }
+              className="flex items-center gap-1 text-xs font-medium text-rose-700 hover:underline disabled:opacity-60"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
