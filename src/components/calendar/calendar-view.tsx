@@ -10,7 +10,7 @@ import { EventForm } from './event-form';
 import {
   buildRangeMap, formatClock, formatMonthLabel, initial, isSameMonth, LAYER_META, LAYER_ORDER,
   monthGrid, tintStyle, WEEKDAYS, weekdayShort, type LayerKey, type ManualEventRow,
-  type SchoolDateRow, type TripWithSegments,
+  type SchoolDateRow, type SeriesRow, type TripWithSegments,
 } from './calendar-utils';
 
 interface CalendarViewProps {
@@ -19,6 +19,7 @@ interface CalendarViewProps {
   exceptions: ExceptionRow[];
   schoolDates: SchoolDateRow[];
   events: ManualEventRow[];
+  series: SeriesRow[];
   trips: TripWithSegments[];
   hasActivePlan: boolean;
   currentUserId: string;
@@ -29,7 +30,7 @@ interface CalendarViewProps {
 }
 
 export function CalendarView({
-  households, rules, exceptions, schoolDates, events, trips, hasActivePlan, currentUserId, isAdmin, today, initialYear, initialMonth,
+  households, rules, exceptions, schoolDates, events, series, trips, hasActivePlan, currentUserId, isAdmin, today, initialYear, initialMonth,
 }: CalendarViewProps) {
   const [view, setView] = useState<'month' | 'agenda'>('month');
   const [year, setYear] = useState(initialYear);
@@ -38,7 +39,9 @@ export function CalendarView({
     parenting: true, school: true, events: true, trips: true,
   });
   const [selectedDate, setSelectedDate] = useState<ISODate | null>(null);
-  const [eventForm, setEventForm] = useState<{ mode: 'create' | 'edit'; date: ISODate; event?: ManualEventRow } | null>(null);
+  const [eventForm, setEventForm] = useState<
+    { mode: 'create' | 'edit' | 'edit-series'; date: ISODate; event?: ManualEventRow; series?: SeriesRow } | null
+  >(null);
 
   function addEvent(date: ISODate) {
     setSelectedDate(null);
@@ -47,6 +50,12 @@ export function CalendarView({
   function editEvent(event: ManualEventRow) {
     setSelectedDate(null);
     setEventForm({ mode: 'edit', date: event.date, event });
+  }
+  function editSeries(seriesId: string) {
+    const sr = series.find((x) => x.id === seriesId);
+    if (!sr) return;
+    setSelectedDate(null);
+    setEventForm({ mode: 'edit-series', date: sr.start_date, series: sr });
   }
 
   const householdById = useMemo(() => new Map(households.map((h) => [h.id, h])), [households]);
@@ -346,6 +355,7 @@ export function CalendarView({
           isAdmin={isAdmin}
           onAddEvent={addEvent}
           onEditEvent={editEvent}
+          onEditSeries={editSeries}
           onClose={() => setSelectedDate(null)}
         />
       )}
@@ -355,6 +365,7 @@ export function CalendarView({
           mode={eventForm.mode}
           date={eventForm.date}
           event={eventForm.event}
+          series={eventForm.series}
           onClose={() => setEventForm(null)}
         />
       )}

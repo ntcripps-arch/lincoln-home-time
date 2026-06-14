@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { todayISO } from '@/lib/dates';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import type { ExceptionRow, Household, ScheduleRule } from '@/lib/types';
-import type { ManualEventRow, SchoolDateRow, TripWithSegments } from '@/components/calendar/calendar-utils';
+import type { ManualEventRow, SchoolDateRow, SeriesRow, TripWithSegments } from '@/components/calendar/calendar-utils';
 
 export default async function CalendarPage() {
   const supabase = createClient();
@@ -29,7 +29,7 @@ export default async function CalendarPage() {
   const familyId = membership.family_id as string;
 
   // All reads are RLS-scoped to this signed-in user.
-  const [householdsRes, planRes, exceptionsRes, schoolRes, eventsRes, tripsRes] = await Promise.all([
+  const [householdsRes, planRes, exceptionsRes, schoolRes, eventsRes, seriesRes, tripsRes] = await Promise.all([
     supabase.from('households').select('*').eq('family_id', familyId).order('sort_order'),
     supabase.from('parenting_plan_versions').select('id').eq('family_id', familyId).eq('status', 'active').maybeSingle(),
     supabase.from('exceptions').select('*').eq('family_id', familyId),
@@ -40,7 +40,11 @@ export default async function CalendarPage() {
       .eq('status', 'approved'),
     supabase
       .from('manual_events')
-      .select('id,title,date,start_time,end_time,all_day,location,notes,category,created_by')
+      .select('id,title,date,start_time,end_time,all_day,location,notes,category,created_by,series_id')
+      .eq('family_id', familyId),
+    supabase
+      .from('manual_event_series')
+      .select('id,title,category,location,notes,all_day,start_time,end_time,weekdays,start_date,end_date')
       .eq('family_id', familyId),
     supabase.from('trips').select('*, trip_segments(*)').eq('family_id', familyId),
   ]);
@@ -66,6 +70,7 @@ export default async function CalendarPage() {
       exceptions={(exceptionsRes.data ?? []) as ExceptionRow[]}
       schoolDates={(schoolRes.data ?? []) as SchoolDateRow[]}
       events={(eventsRes.data ?? []) as ManualEventRow[]}
+      series={(seriesRes.data ?? []) as SeriesRow[]}
       trips={(tripsRes.data ?? []) as TripWithSegments[]}
       hasActivePlan={Boolean(planRes.data?.id)}
       currentUserId={user.id}

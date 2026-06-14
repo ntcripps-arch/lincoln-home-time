@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Bed, Car, MapPin, Pencil, Plane, Plus, Trash2 } from 'lucide-react';
+import { Bed, Car, MapPin, Navigation, Pencil, Plane, Plus, Trash2 } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { cn } from '@/lib/utils';
 import type { DayAssignment, ExceptionRow, Household, ISODate, SegmentType, TripSegment } from '@/lib/types';
@@ -10,7 +10,10 @@ import {
   schoolCategoryLabel, type ManualEventRow, type SchoolDateRow, type TripWithSegments,
 } from './calendar-utils';
 import { segmentDisplay } from '@/components/trips/trip-utils';
-import { deleteEvent } from './event-actions';
+import { deleteEvent, deleteSeries } from './event-actions';
+
+const directionsUrl = (loc: string) =>
+  `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(loc)}`;
 
 interface DaySheetProps {
   date: ISODate;
@@ -25,6 +28,7 @@ interface DaySheetProps {
   isAdmin: boolean;
   onAddEvent: (date: ISODate) => void;
   onEditEvent: (event: ManualEventRow) => void;
+  onEditSeries: (seriesId: string) => void;
   onClose: () => void;
 }
 
@@ -37,7 +41,7 @@ const SEGMENT_ICON: Record<SegmentType, typeof Plane> = {
 
 export function DaySheet({
   date, day, household, households, exceptions, school, events, trips,
-  currentUserId, isAdmin, onAddEvent, onEditEvent, onClose,
+  currentUserId, isAdmin, onAddEvent, onEditEvent, onEditSeries, onClose,
 }: DaySheetProps) {
   const householdName = (id: string | null | undefined) =>
     households.find((h) => h.id === id)?.name ?? 'Unassigned';
@@ -83,7 +87,8 @@ export function DaySheet({
               key={e.id}
               event={e}
               canManage={isAdmin || e.created_by === currentUserId}
-              onEdit={() => onEditEvent(e)}
+              onEditOne={() => onEditEvent(e)}
+              onEditSeries={onEditSeries}
             />
           ))}
           <button
@@ -144,44 +149,98 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function EventRow({ event, canManage, onEdit }: { event: ManualEventRow; canManage: boolean; onEdit: () => void }) {
+function EventRow({
+  event,
+  canManage,
+  onEditOne,
+  onEditSeries,
+}: {
+  event: ManualEventRow;
+  canManage: boolean;
+  onEditOne: () => void;
+  onEditSeries: (seriesId: string) => void;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<null | 'edit' | 'delete'>(null);
+  const isSeries = Boolean(event.series_id);
   const time = event.all_day
     ? 'All day'
     : [formatClock(event.start_time), formatClock(event.end_time)].filter(Boolean).join(' – ');
   const sub = [time, event.location, manualCategoryLabel(event.category)].filter(Boolean).join(' · ');
 
+  function del(scope: 'one' | 'series') {
+    setError(null);
+    startTransition(async () => {
+      const res =
+        scope === 'series' && event.series_id
+          ? await deleteSeries({ seriesId: event.series_id })
+          : await deleteEvent({ id: event.id });
+      if ('error' in res) setError(res.error);
+    });
+  }
+
+  const linkBtn = 'text-xs font-medium hover:underline disabled:opacity-60';
+
   return (
     <div className="flex gap-2.5">
       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{event.title}</p>
+        <p className="text-sm font-medium text-foreground">
+          {event.title}
+          {isSeries && <span className="ml-1.5 text-xs font-normal text-muted-foreground">· repeats</span>}
+        </p>
         {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
         {event.notes && <p className="text-xs text-muted-foreground">{event.notes}</p>}
-        {error && <p className="text-xs text-rose-700">{error}</p>}
-        {canManage && (
-          <div className="mt-1 flex gap-3">
-            <button type="button" onClick={onEdit} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-              <Pencil className="h-3 w-3" />
-              Edit
-            </button>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  const res = await deleteEvent({ id: event.id });
-                  if ('error' in res) setError(res.error);
-                })
-              }
-              className="flex items-center gap-1 text-xs font-medium text-rose-700 hover:underline disabled:opacity-60"
-            >
-              <Trash2 className="h-3 w-3" />
-              Delete
-            </button>
-          </div>
+        {event.location && (
+          <a
+            href={directionsUrl(event.location)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <Navigation className="h-3 w-3" />
+            Get directions
+          </a>
         )}
+        {error && <p className="text-xs text-rose-700">{error}</p>}
+
+        {canManage &&
+          (confirm === 'edit' ? (
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <span className="text-xs text-muted-foreground">Edit:</span>
+              <button type="button" onClick={onEditOne} className={cn(linkBtn, 'text-primary')}>This event</button>
+              <button type="button" onClick={() => event.series_id && onEditSeries(event.series_id)} className={cn(linkBtn, 'text-primary')}>Whole series</button>
+              <button type="button" onClick={() => setConfirm(null)} className={cn(linkBtn, 'text-muted-foreground')}>Cancel</button>
+            </div>
+          ) : confirm === 'delete' ? (
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <span className="text-xs text-muted-foreground">Delete:</span>
+              <button type="button" disabled={pending} onClick={() => del('one')} className={cn(linkBtn, 'text-rose-700')}>This event</button>
+              <button type="button" disabled={pending} onClick={() => del('series')} className={cn(linkBtn, 'text-rose-700')}>Whole series</button>
+              <button type="button" onClick={() => setConfirm(null)} className={cn(linkBtn, 'text-muted-foreground')}>Cancel</button>
+            </div>
+          ) : (
+            <div className="mt-1 flex gap-3">
+              <button
+                type="button"
+                onClick={() => (isSeries ? setConfirm('edit') : onEditOne())}
+                className={cn(linkBtn, 'flex items-center gap-1 text-primary')}
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => (isSeries ? setConfirm('delete') : del('one'))}
+                className={cn(linkBtn, 'flex items-center gap-1 text-rose-700')}
+              >
+                <Trash2 className="h-3 w-3" />
+                Delete
+              </button>
+            </div>
+          ))}
       </div>
     </div>
   );

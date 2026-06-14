@@ -28,8 +28,24 @@ export interface ManualEventRow {
   notes: string | null;
   category: string;
   created_by: string | null;
+  series_id: string | null;
 }
 export type TripWithSegments = Trip & { trip_segments: TripSegment[] };
+
+// Recurrence definition for a repeating event (one row per series).
+export interface SeriesRow {
+  id: string;
+  title: string;
+  category: string;
+  location: string | null;
+  notes: string | null;
+  all_day: boolean;
+  start_time: string | null;
+  end_time: string | null;
+  weekdays: number[]; // 0=Sun .. 6=Sat
+  start_date: ISODate;
+  end_date: ISODate;
+}
 
 // manual_category enum, verbatim from 0001_init.sql.
 export const MANUAL_CATEGORIES: { value: string; label: string }[] = [
@@ -42,6 +58,16 @@ export const MANUAL_CATEGORIES: { value: string; label: string }[] = [
 ];
 export function manualCategoryLabel(c: string): string {
   return MANUAL_CATEGORIES.find((x) => x.value === c)?.label ?? c;
+}
+
+// Single-letter weekday labels for the recurrence picker (index = 0=Sun..6=Sat).
+export const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+/** Calendar dates in [start, end] whose weekday is in `weekdays` (0=Sun..6=Sat). */
+export function occurrenceDates(weekdays: number[], start: ISODate, end: ISODate, cap = 400): ISODate[] {
+  if (!weekdays.length || start > end) return [];
+  const set = new Set(weekdays);
+  return eachDay(start, end).filter((d) => set.has(weekday(d))).slice(0, cap);
 }
 
 // ---- Constants ---------------------------------------------------------------
