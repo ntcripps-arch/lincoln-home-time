@@ -14,12 +14,14 @@ import { cn } from '@/lib/utils';
 let mapsPromise: Promise<void> | null = null;
 function loadMaps(key: string): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
-  const w = window as unknown as { google?: { maps?: { places?: unknown } } };
-  if (w.google?.maps?.places) return Promise.resolve();
+  const w = window as unknown as { google?: { maps?: { importLibrary?: unknown } } };
+  if (w.google?.maps?.importLibrary) return Promise.resolve();
   if (!mapsPromise) {
     mapsPromise = new Promise<void>((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places&loading=async`;
+      // `loading=async` + importLibrary() (below) is Google's recommended path;
+      // it guarantees the places library is ready before we touch it.
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&loading=async`;
       s.async = true;
       s.onload = () => resolve();
       s.onerror = () => reject(new Error('Google Maps failed to load'));
@@ -73,12 +75,27 @@ export function LocationInput({
 
   useEffect(() => {
     const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    if (!key) return;
+    if (!key) {
+      // Loud, not silent: NEXT_PUBLIC_* is inlined at BUILD time, so an empty
+      // value here means the var wasn't present when this bundle was built.
+      console.warn(
+        '[LocationInput] NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is missing from this build — ' +
+          'location autocomplete is disabled. Set it in Vercel (and .env.local for dev), then REDEPLOY: ' +
+          'NEXT_PUBLIC_* values are baked in at build time, not read at runtime.',
+      );
+      return;
+    }
     let cancelled = false;
     loadMaps(key)
-      .then(() => {
+      .then(async () => {
         if (cancelled) return;
-        const places = (window as unknown as { google: { maps: { places: PlacesLib } } }).google.maps.places;
+        // importLibrary resolves only once the places library is fully ready
+        // (avoids a race where google.maps.places is briefly undefined).
+        const g = (window as unknown as {
+          google: { maps: { importLibrary: (name: string) => Promise<unknown> } };
+        }).google;
+        const places = (await g.maps.importLibrary('places')) as PlacesLib;
+        if (cancelled) return;
         if (!places?.AutocompleteSuggestion) {
           console.error('[LocationInput] Places API (New) unavailable — enable "Places API (New)" on the key.');
           return;
