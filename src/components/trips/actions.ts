@@ -81,8 +81,13 @@ export async function createTrip(input: TripInput): Promise<TripResult> {
 export async function updateTrip(input: TripInput & { id: string }): Promise<TripResult> {
   const supabase = createClient();
   if (!input.title.trim()) return { error: 'Title is required.' };
-  const { error } = await supabase.from('trips').update(normalizeTrip(input)).eq('id', input.id);
+  const { data, error } = await supabase
+    .from('trips')
+    .update(normalizeTrip(input))
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Trip not found or you lack permission to edit it.' };
   revalidatePath('/trips');
   revalidatePath(`/trips/${input.id}`);
   revalidatePath('/calendar');
@@ -91,8 +96,9 @@ export async function updateTrip(input: TripInput & { id: string }): Promise<Tri
 
 export async function deleteTrip(input: { id: string }): Promise<TripResult> {
   const supabase = createClient();
-  const { error } = await supabase.from('trips').delete().eq('id', input.id);
+  const { data, error } = await supabase.from('trips').delete().eq('id', input.id).select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Trip not found or you lack permission to delete it.' };
   revalidatePath('/trips');
   revalidatePath('/calendar');
   redirect('/trips');
@@ -188,6 +194,14 @@ export async function addSegment(input: SegmentInput): Promise<TripResult> {
   const fid = await familyId(supabase);
   if (!fid) return { error: 'You are not part of a family.' };
 
+  // The trip must belong to the caller's family — don't trust the client tripId.
+  const { data: trip } = await supabase
+    .from('trips')
+    .select('family_id')
+    .eq('id', input.tripId)
+    .maybeSingle();
+  if (!trip || trip.family_id !== fid) return { error: 'Trip not found.' };
+
   const { data: maxRow } = await supabase
     .from('trip_segments')
     .select('sort_order')
@@ -208,8 +222,13 @@ export async function addSegment(input: SegmentInput): Promise<TripResult> {
 
 export async function updateSegment(input: SegmentInput & { id: string }): Promise<TripResult> {
   const supabase = createClient();
-  const { error } = await supabase.from('trip_segments').update(normalizeSegment(input)).eq('id', input.id);
+  const { data, error } = await supabase
+    .from('trip_segments')
+    .update(normalizeSegment(input))
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Segment not found or you lack permission to edit it.' };
   revalidatePath(`/trips/${input.tripId}`);
   revalidatePath('/calendar');
   return { ok: true };
@@ -217,8 +236,13 @@ export async function updateSegment(input: SegmentInput & { id: string }): Promi
 
 export async function deleteSegment(input: { id: string; tripId: string }): Promise<TripResult> {
   const supabase = createClient();
-  const { error } = await supabase.from('trip_segments').delete().eq('id', input.id);
+  const { data, error } = await supabase
+    .from('trip_segments')
+    .delete()
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Segment not found or you lack permission to delete it.' };
   revalidatePath(`/trips/${input.tripId}`);
   revalidatePath('/calendar');
   return { ok: true };

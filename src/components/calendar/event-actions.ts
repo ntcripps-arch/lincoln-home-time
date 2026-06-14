@@ -61,19 +61,22 @@ export async function createEvent(input: EventInput): Promise<EventResult> {
 export async function updateEvent(input: EventInput & { id: string }): Promise<EventResult> {
   const supabase = createClient();
   if (!input.title.trim()) return { error: 'Title is required.' };
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('manual_events')
     .update({ ...normalize(input), overridden: true })
-    .eq('id', input.id);
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Event not found or you lack permission to edit it.' };
   revalidatePath('/calendar');
   return { ok: true };
 }
 
 export async function deleteEvent(input: { id: string }): Promise<EventResult> {
   const supabase = createClient();
-  const { error } = await supabase.from('manual_events').delete().eq('id', input.id);
+  const { data, error } = await supabase.from('manual_events').delete().eq('id', input.id).select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Event not found or you lack permission to delete it.' };
   revalidatePath('/calendar');
   return { ok: true };
 }
@@ -177,8 +180,13 @@ export async function updateSeries(input: RecurInput & { seriesId: string }): Pr
   if (!me) return { error: 'You are not part of a family.' };
   const fid = me.family_id as string;
 
-  const { error: sErr } = await supabase.from('manual_event_series').update(seriesFields(input, fid)).eq('id', input.seriesId);
+  const { data: updatedSeries, error: sErr } = await supabase
+    .from('manual_event_series')
+    .update(seriesFields(input, fid))
+    .eq('id', input.seriesId)
+    .select('id');
   if (sErr) return { error: sErr.message };
+  if (!updatedSeries?.length) return { error: 'Series not found or you lack permission to edit it.' };
 
   // Keep individually-edited occurrences; regenerate the rest.
   const { data: kept } = await supabase
@@ -205,8 +213,13 @@ export async function updateSeries(input: RecurInput & { seriesId: string }): Pr
 
 export async function deleteSeries(input: { seriesId: string }): Promise<EventResult> {
   const supabase = createClient();
-  const { error } = await supabase.from('manual_event_series').delete().eq('id', input.seriesId);
+  const { data, error } = await supabase
+    .from('manual_event_series')
+    .delete()
+    .eq('id', input.seriesId)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Series not found or you lack permission to delete it.' };
   revalidatePath('/calendar');
   return { ok: true };
 }

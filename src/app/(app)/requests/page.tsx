@@ -29,18 +29,36 @@ export default async function RequestsPage() {
     );
   }
 
-  const [reqRes, membersRes, profilesRes, householdsRes] = await Promise.all([
+  const [reqRes, membersRes, householdsRes] = await Promise.all([
     supabase.from('time_requests').select('*').eq('family_id', me.family_id),
-    supabase.from('family_members').select('profile_id, household_id, role').eq('family_id', me.family_id),
-    supabase.from('profiles').select('id, display_name'),
+    // Display names come through the family_members embed so we never read the
+    // whole profiles table — only this family's members.
+    supabase
+      .from('family_members')
+      .select('profile_id, household_id, role, profiles(display_name)')
+      .eq('family_id', me.family_id),
     supabase.from('households').select('id, name, color').eq('family_id', me.family_id),
   ]);
 
+  if (reqRes.error) {
+    return (
+      <div className="py-16 text-center">
+        <p className="text-sm text-muted-foreground">Couldn’t load requests. Please try again.</p>
+      </div>
+    );
+  }
+
   const requests = (reqRes.data ?? []) as RequestRow[];
-  const members = (membersRes.data ?? []) as { profile_id: string; household_id: string | null }[];
+  // PostgREST returns the to-one `profiles` embed as an object at runtime; the
+  // generated types call it an array, so cast through unknown.
+  const members = (membersRes.data ?? []) as unknown as {
+    profile_id: string;
+    household_id: string | null;
+    profiles: { display_name: string | null } | null;
+  }[];
   const householdById = new Map((householdsRes.data ?? []).map((h) => [h.id as string, h]));
   const householdByProfile = new Map(members.map((m) => [m.profile_id, m.household_id]));
-  const nameByProfile = new Map((profilesRes.data ?? []).map((p) => [p.id as string, p.display_name as string]));
+  const nameByProfile = new Map(members.map((m) => [m.profile_id, m.profiles?.display_name ?? 'A parent']));
 
   const myHouseholdName = me.household_id ? householdById.get(me.household_id)?.name ?? null : null;
 

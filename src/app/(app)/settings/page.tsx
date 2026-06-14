@@ -5,14 +5,24 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import type { Household } from '@/lib/types';
 import { Avatar } from '@/components/settings/avatar';
+import { CalendarFeed } from '@/components/settings/calendar-feed';
 import { HouseholdsForm } from '@/components/settings/households-form';
 import { ProfileForm } from '@/components/settings/profile-form';
 import { signOut } from '@/components/settings/actions';
 
-async function signedAvatar(supabase: SupabaseClient, path: string | null | undefined): Promise<string | null> {
-  if (!path) return null;
-  const { data } = await supabase.storage.from('avatars').createSignedUrl(path, 3600);
-  return data?.signedUrl ?? null;
+// Sign every avatar path in ONE Storage round-trip; returns path -> signed URL.
+async function signAvatars(
+  supabase: SupabaseClient,
+  paths: (string | null | undefined)[],
+): Promise<Map<string, string>> {
+  const unique = Array.from(new Set(paths.filter((p): p is string => Boolean(p))));
+  const map = new Map<string, string>();
+  if (!unique.length) return map;
+  const { data } = await supabase.storage.from('avatars').createSignedUrls(unique, 3600);
+  for (const row of data ?? []) {
+    if (row.path && row.signedUrl) map.set(row.path, row.signedUrl);
+  }
+  return map;
 }
 
 export default async function SettingsPage() {
@@ -35,6 +45,7 @@ export default async function SettingsPage() {
 
   let households: Household[] = [];
   let roster: { profile_id: string; role: string; name: string; color: string | null; avatar: string | null }[] = [];
+  let avatarByPath = new Map<string, string>();
 
   if (familyId) {
     const [hhRes, rosterRes] = await Promise.all([
@@ -55,17 +66,25 @@ export default async function SettingsPage() {
       role: string;
       profiles: { display_name: string | null; avatar_url: string | null } | null;
     }[];
-    const signed = await Promise.all(members.map((m) => signedAvatar(supabase, m.profiles?.avatar_url)));
-    roster = members.map((m, i) => ({
+    const signed = await signAvatars(supabase, [
+      ...members.map((m) => m.profiles?.avatar_url),
+      profile?.avatar_url,
+    ]);
+    roster = members.map((m) => ({
       profile_id: m.profile_id,
       role: m.role,
       name: m.profiles?.display_name ?? 'Member',
       color: m.household_id ? colorByHousehold.get(m.household_id) ?? null : null,
-      avatar: signed[i],
+      avatar: (m.profiles?.avatar_url && signed.get(m.profiles.avatar_url)) || null,
     }));
+    avatarByPath = signed;
+  } else if (profile?.avatar_url) {
+    avatarByPath = await signAvatars(supabase, [profile.avatar_url]);
   }
 
-  const myAvatar = await signedAvatar(supabase, profile?.avatar_url);
+  const myAvatar = (profile?.avatar_url && avatarByPath.get(profile.avatar_url)) || null;
+
+  const { data: feed } = await supabase.from('calendar_feeds').select('token').eq('profile_id', user.id).maybeSingle();
 
   const linkClass =
     'flex min-h-[2.75rem] items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-foreground transition hover:bg-muted';
@@ -82,6 +101,8 @@ export default async function SettingsPage() {
       />
 
       {isAdmin && households.length > 0 && <HouseholdsForm households={households} />}
+
+      <CalendarFeed initialToken={(feed?.token as string | undefined) ?? null} />
 
       {roster.length > 0 && (
         <section className="space-y-3 rounded-xl border border-border bg-card p-4 shadow-sm">

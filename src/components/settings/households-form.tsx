@@ -20,8 +20,9 @@ export function HouseholdsForm({ households }: { households: Household[] }) {
 
 function HouseholdCard({ household }: { household: Household }) {
   const [name, setName] = useState(household.name);
-  const [pickup, setPickup] = useState(household.pickup_default ?? '');
-  const [dropoff, setDropoff] = useState(household.dropoff_default ?? '');
+  // DB `time` columns can return 'HH:MM:SS'; the time input wants 'HH:MM'.
+  const [pickup, setPickup] = useState((household.pickup_default ?? '').slice(0, 5));
+  const [dropoff, setDropoff] = useState((household.dropoff_default ?? '').slice(0, 5));
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -70,13 +71,13 @@ function HouseholdCard({ household }: { household: Household }) {
           </label>
           <input
             id={`hh-pickup-${household.id}`}
+            type="time"
             value={pickup}
             onChange={(e) => {
               setPickup(e.target.value);
               setSaved(false);
             }}
             className={fieldClass}
-            placeholder="15:30"
           />
         </div>
         <div className="space-y-1.5">
@@ -85,13 +86,13 @@ function HouseholdCard({ household }: { household: Household }) {
           </label>
           <input
             id={`hh-dropoff-${household.id}`}
+            type="time"
             value={dropoff}
             onChange={(e) => {
               setDropoff(e.target.value);
               setSaved(false);
             }}
             className={fieldClass}
-            placeholder="09:00"
           />
         </div>
       </div>

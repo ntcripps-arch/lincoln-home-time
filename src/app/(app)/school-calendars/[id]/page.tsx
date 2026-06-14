@@ -13,10 +13,22 @@ export default async function SchoolCalendarReviewPage({ params }: { params: { i
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
+  // Reviewing/approving school dates is an admin task — gate the page.
+  const { data: me } = await supabase
+    .from('family_members')
+    .select('family_id, role')
+    .eq('profile_id', user.id)
+    .limit(1)
+    .maybeSingle();
+  if (!me) redirect('/calendar');
+  if (me.role !== 'admin') redirect('/calendar');
+  const familyId = me.family_id as string;
+
   const { data: upload } = await supabase
     .from('school_calendar_uploads')
     .select('id, school_year, status, source_text')
     .eq('id', params.id)
+    .eq('family_id', familyId)
     .maybeSingle();
 
   if (!upload) {
@@ -34,6 +46,7 @@ export default async function SchoolCalendarReviewPage({ params }: { params: { i
     .from('school_calendar_dates')
     .select('id, date, end_date, category, title, notes, status')
     .eq('upload_id', params.id)
+    .eq('family_id', familyId)
     .order('date');
 
   const badge = uploadStatusBadge(upload.status as SchoolUploadStatus);

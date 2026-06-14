@@ -41,6 +41,7 @@ export function ReviewTable({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [confirmRejectAll, setConfirmRejectAll] = useState(false);
 
   const proposedIds = rows.filter((r) => r.status === 'proposed').map((r) => r.id);
 
@@ -95,7 +96,7 @@ export function ReviewTable({
             <button
               type="button"
               disabled={pending}
-              onClick={() => run(() => rejectDates({ uploadId, ids: proposedIds }))}
+              onClick={() => setConfirmRejectAll(true)}
               className={btnDanger}
             >
               Reject all
@@ -103,6 +104,27 @@ export function ReviewTable({
           </>
         )}
       </div>
+
+      {confirmRejectAll && (
+        <div className="space-y-2 rounded-lg border border-rose-200 bg-rose-50 p-3">
+          <p className="text-sm font-medium text-rose-900">
+            Reject all {proposedIds.length} proposed date{proposedIds.length === 1 ? '' : 's'}?
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => rejectDates({ uploadId, ids: proposedIds }).then((r) => { setConfirmRejectAll(false); return r; }))}
+              className={btnDanger}
+            >
+              {pending ? 'Working…' : 'Reject all'}
+            </button>
+            <button type="button" disabled={pending} onClick={() => setConfirmRejectAll(false)} className={btnGhost}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && <p className={alertClass}>{error}</p>}
       {info && <p className={infoClass}>{info}</p>}
@@ -246,6 +268,20 @@ function DateCard({ uploadId, row }: { uploadId: string; row: SchoolDateEditRow 
   });
   const badge = dateStatusBadge(row.status);
 
+  // Seed the edit fields from the current row each time editing opens, so a
+  // refreshed `row` (after another action) never shows stale values.
+  function startEditing() {
+    setState({
+      date: row.date,
+      endDate: row.end_date ?? '',
+      category: row.category,
+      title: row.title,
+      notes: row.notes ?? '',
+    });
+    setError(null);
+    setEditing(true);
+  }
+
   function run(fn: () => Promise<SchoolResult>, after?: () => void) {
     setError(null);
     startTransition(async () => {
@@ -326,7 +362,7 @@ function DateCard({ uploadId, row }: { uploadId: string; row: SchoolDateEditRow 
             Reject
           </button>
         )}
-        <button type="button" disabled={pending} onClick={() => setEditing(true)} className={btnGhost}>
+        <button type="button" disabled={pending} onClick={startEditing} className={btnGhost}>
           <Pencil className="h-4 w-4" />
           Edit
         </button>

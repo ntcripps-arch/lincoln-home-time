@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { Bed, Car, MapPin, Navigation, Pencil, Plane, Plus, Trash2 } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { cn } from '@/lib/utils';
 import type { DayAssignment, ExceptionRow, Household, ISODate, SegmentType, TripSegment } from '@/lib/types';
 import {
   exceptionTypeLabel, formatClock, formatFullDate, manualCategoryLabel,
-  schoolCategoryLabel, type ManualEventRow, type SchoolDateRow, type TripWithSegments,
+  schoolCategoryLabel, type ManualEventRow, type RequestLayerRow, type SchoolDateRow, type TripWithSegments,
 } from './calendar-utils';
 import { segmentDisplay } from '@/components/trips/trip-utils';
 import { deleteEvent, deleteSeries } from './event-actions';
@@ -24,6 +25,7 @@ interface DaySheetProps {
   school: SchoolDateRow[];
   events: ManualEventRow[];
   trips: TripWithSegments[];
+  requests: RequestLayerRow[];
   currentUserId: string;
   isAdmin: boolean;
   onAddEvent: (date: ISODate) => void;
@@ -40,7 +42,7 @@ const SEGMENT_ICON: Record<SegmentType, typeof Plane> = {
 };
 
 export function DaySheet({
-  date, day, household, households, exceptions, school, events, trips,
+  date, day, household, households, exceptions, school, events, trips, requests,
   currentUserId, isAdmin, onAddEvent, onEditEvent, onEditSeries, onClose,
 }: DaySheetProps) {
   const householdName = (id: string | null | undefined) =>
@@ -100,6 +102,24 @@ export function DaySheet({
             Add event
           </button>
         </Section>
+
+        {requests.length > 0 && (
+          <Section title="Pending requests">
+            {requests.map((r) => (
+              <Link
+                key={r.id}
+                href="/requests"
+                className="flex items-center gap-2.5 rounded-lg border border-border bg-background p-3 transition hover:bg-muted"
+              >
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-rose-500" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{r.title}</span>
+                <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800 capitalize">
+                  {r.status}
+                </span>
+              </Link>
+            ))}
+          </Section>
+        )}
 
         {school.length > 0 && (
           <Section title="School">
@@ -215,9 +235,11 @@ function EventRow({
             </div>
           ) : confirm === 'delete' ? (
             <div className="mt-1 flex flex-wrap items-center gap-3">
-              <span className="text-xs text-muted-foreground">Delete:</span>
-              <button type="button" disabled={pending} onClick={() => del('one')} className={cn(linkBtn, 'text-rose-700')}>This event</button>
-              <button type="button" disabled={pending} onClick={() => del('series')} className={cn(linkBtn, 'text-rose-700')}>Whole series</button>
+              <span className="text-xs text-muted-foreground">{isSeries ? 'Delete:' : 'Delete this event?'}</span>
+              <button type="button" disabled={pending} onClick={() => del('one')} className={cn(linkBtn, 'text-rose-700')}>{isSeries ? 'This event' : 'Delete'}</button>
+              {isSeries && (
+                <button type="button" disabled={pending} onClick={() => del('series')} className={cn(linkBtn, 'text-rose-700')}>Whole series</button>
+              )}
               <button type="button" onClick={() => setConfirm(null)} className={cn(linkBtn, 'text-muted-foreground')}>Cancel</button>
             </div>
           ) : (
@@ -233,7 +255,7 @@ function EventRow({
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => (isSeries ? setConfirm('delete') : del('one'))}
+                onClick={() => setConfirm('delete')}
                 className={cn(linkBtn, 'flex items-center gap-1 text-rose-700')}
               >
                 <Trash2 className="h-3 w-3" />

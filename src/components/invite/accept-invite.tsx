@@ -84,7 +84,16 @@ export function AcceptInvite({
           return;
         }
       } else {
-        const { data, error: e2 } = await supabase.auth.signUp({ email: inviteEmail, password });
+        const { data, error: e2 } = await supabase.auth.signUp({
+          email: inviteEmail,
+          password,
+          options: {
+            emailRedirectTo:
+              typeof window !== 'undefined'
+                ? `${window.location.origin}/invite?token=${token}`
+                : undefined,
+          },
+        });
         if (e2) {
           setError(e2.message);
           return;

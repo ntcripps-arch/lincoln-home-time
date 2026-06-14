@@ -17,17 +17,47 @@ export function BottomSheet({
 }) {
   const [dragY, setDragY] = useState(0);
   const startY = useRef<number | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      // Trap focus within the sheet.
+      const items = focusables();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !panelRef.current?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // Move focus into the sheet on open.
+    focusables()[0]?.focus();
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
+      opener?.focus?.();
     };
   }, [onClose]);
 
@@ -40,6 +70,7 @@ export function BottomSheet({
         className="absolute inset-0 h-full w-full cursor-default bg-black/40 animate-in fade-in"
       />
       <div
+        ref={panelRef}
         style={dragY ? { transform: `translateY(${dragY}px)` } : undefined}
         className="absolute inset-x-0 bottom-0 mx-auto flex max-h-[88dvh] w-full max-w-screen-sm flex-col rounded-t-2xl bg-card shadow-xl animate-in slide-in-from-bottom duration-300"
       >

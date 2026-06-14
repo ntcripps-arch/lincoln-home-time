@@ -87,7 +87,7 @@ export interface CustomCycleConfig {
   anchorDate: ISODate;     // index-0 date of the cycle
   parentA: string;         // household for 'A' slots
   parentB: string;         // household for 'B' slots
-  pattern: ('A' | 'B')[];  // length defines the cycle (e.g. 14)
+  pattern: readonly ('A' | 'B')[];  // length defines the cycle (e.g. 14)
 }
 
 export interface HolidayConfig {

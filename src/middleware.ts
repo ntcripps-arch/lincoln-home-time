@@ -2,7 +2,8 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 // Refreshes the auth session and gates the app behind login.
-const PUBLIC_PATHS = ['/login', '/auth', '/invite'];
+// '/feed' is the tokenized, read-only ICS subscribe feed (auth via URL token).
+const PUBLIC_PATHS = ['/login', '/auth', '/invite', '/feed'];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });

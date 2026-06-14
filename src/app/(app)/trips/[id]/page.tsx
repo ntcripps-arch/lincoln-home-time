@@ -21,12 +21,13 @@ export default async function TripDetailPage({ params }: { params: { id: string 
     .limit(1)
     .maybeSingle();
   if (!me) redirect('/trips');
-  const familyId = me!.family_id as string;
+  const familyId = me.family_id as string;
 
   const { data: trip } = await supabase
     .from('trips')
     .select('id, title, destination, start_date, end_date, traveling_household_id, notes, linked_request_id')
     .eq('id', params.id)
+    .eq('family_id', familyId)
     .maybeSingle();
 
   if (!trip) {

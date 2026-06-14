@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { todayISO } from '@/lib/dates';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import type { ExceptionRow, Household, ScheduleRule } from '@/lib/types';
-import type { ManualEventRow, SchoolDateRow, SeriesRow, TripWithSegments } from '@/components/calendar/calendar-utils';
+import type { ManualEventRow, RequestLayerRow, SchoolDateRow, SeriesRow, TripWithSegments } from '@/components/calendar/calendar-utils';
 
 export default async function CalendarPage() {
   const supabase = createClient();
@@ -29,7 +29,7 @@ export default async function CalendarPage() {
   const familyId = membership.family_id as string;
 
   // All reads are RLS-scoped to this signed-in user.
-  const [householdsRes, planRes, exceptionsRes, schoolRes, eventsRes, seriesRes, tripsRes] = await Promise.all([
+  const [householdsRes, planRes, exceptionsRes, schoolRes, eventsRes, seriesRes, tripsRes, requestsRes] = await Promise.all([
     supabase.from('households').select('*').eq('family_id', familyId).order('sort_order'),
     supabase.from('parenting_plan_versions').select('id').eq('family_id', familyId).eq('status', 'active').maybeSingle(),
     supabase.from('exceptions').select('*').eq('family_id', familyId),
@@ -47,7 +47,24 @@ export default async function CalendarPage() {
       .select('id,title,category,location,notes,all_day,start_time,end_time,weekdays,start_date,end_date')
       .eq('family_id', familyId),
     supabase.from('trips').select('*, trip_segments(*)').eq('family_id', familyId),
+    supabase
+      .from('time_requests')
+      .select('id, title, start_date, end_date, status')
+      .eq('family_id', familyId)
+      .in('status', ['pending', 'countered']),
   ]);
+
+  // A failed schedule/exception read must not silently render as an empty
+  // calendar — surface it so nobody trusts a blank schedule.
+  if (householdsRes.error || exceptionsRes.error) {
+    return (
+      <div className="py-16 text-center">
+        <p className="text-sm text-muted-foreground">
+          Couldn’t load the calendar right now. Please refresh to try again.
+        </p>
+      </div>
+    );
+  }
 
   // Load every rule on the active plan version (base rotation + overrides); the
   // engine layers them by priority.
@@ -72,6 +89,7 @@ export default async function CalendarPage() {
       events={(eventsRes.data ?? []) as ManualEventRow[]}
       series={(seriesRes.data ?? []) as SeriesRow[]}
       trips={(tripsRes.data ?? []) as TripWithSegments[]}
+      requests={(requestsRes.data ?? []) as RequestLayerRow[]}
       hasActivePlan={Boolean(planRes.data?.id)}
       currentUserId={user.id}
       isAdmin={(membership.role as string) === 'admin'}

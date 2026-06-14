@@ -178,6 +178,7 @@ function InvitationCard({ inv, householdName }: { inv: InvitationRow; householdN
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [resent, setResent] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const expired = new Date(inv.expires_at).getTime() <= Date.now();
@@ -229,17 +230,36 @@ function InvitationCard({ inv, householdName }: { inv: InvitationRow; householdN
         <button type="button" disabled={pending} onClick={() => run(() => resendInvitation({ id: inv.id }), () => { setResent(true); setTimeout(() => setResent(false), 1500); })} className={btnBase}>
           {resent ? 'Sent ✓' : 'Resend'}
         </button>
-        {canRevoke && (
+        {canRevoke && !confirmRevoke && (
           <button
             type="button"
             disabled={pending}
-            onClick={() => run(() => revokeInvitation({ id: inv.id }))}
+            onClick={() => setConfirmRevoke(true)}
             className={`${btnBase} text-rose-700 hover:bg-rose-50`}
           >
             Revoke
           </button>
         )}
       </div>
+
+      {canRevoke && confirmRevoke && (
+        <div className="mt-3 space-y-2 rounded-lg border border-rose-200 bg-rose-50 p-3">
+          <p className="text-sm font-medium text-rose-900">Revoke this invitation? The link will stop working.</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => revokeInvitation({ id: inv.id }), () => setConfirmRevoke(false))}
+              className={`${btnBase} text-rose-700 hover:bg-rose-50`}
+            >
+              {pending ? 'Working…' : 'Revoke'}
+            </button>
+            <button type="button" disabled={pending} onClick={() => setConfirmRevoke(false)} className={btnBase}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </li>
   );
 }

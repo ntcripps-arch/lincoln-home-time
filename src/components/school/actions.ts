@@ -88,7 +88,7 @@ export async function updateDate(input: {
 }): Promise<SchoolResult> {
   const supabase = createClient();
   if (!input.title.trim()) return { error: 'Title is required.' };
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('school_calendar_dates')
     .update({
       date: input.date,
@@ -97,16 +97,23 @@ export async function updateDate(input: {
       title: input.title.trim(),
       notes: input.notes?.trim() || null,
     })
-    .eq('id', input.id);
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Date not found or you lack permission to edit it.' };
   revalidatePath(`/school-calendars/${input.uploadId}`);
   return { ok: true };
 }
 
 export async function deleteDate(input: { id: string; uploadId: string }): Promise<SchoolResult> {
   const supabase = createClient();
-  const { error } = await supabase.from('school_calendar_dates').delete().eq('id', input.id);
+  const { data, error } = await supabase
+    .from('school_calendar_dates')
+    .delete()
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Date not found or you lack permission to delete it.' };
   revalidatePath(`/school-calendars/${input.uploadId}`);
   return { ok: true };
 }
@@ -123,11 +130,13 @@ export async function approveDates(input: { uploadId: string; ids: string[] }): 
   const fid = await familyId(supabase);
   if (!fid) return { error: 'You are not part of a family.' };
 
-  const { error: dErr } = await supabase
+  const { data: approved, error: dErr } = await supabase
     .from('school_calendar_dates')
     .update({ status: 'approved' })
-    .in('id', input.ids);
+    .in('id', input.ids)
+    .select('id');
   if (dErr) return { error: dErr.message };
+  if (!approved?.length) return { error: 'You do not have permission to approve these dates.' };
 
   const { error: uErr } = await supabase
     .from('school_calendar_uploads')
@@ -151,11 +160,13 @@ export async function approveDates(input: { uploadId: string; ids: string[] }): 
 export async function rejectDates(input: { uploadId: string; ids: string[] }): Promise<SchoolResult> {
   if (input.ids.length === 0) return { error: 'Nothing selected to reject.' };
   const supabase = createClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('school_calendar_dates')
     .update({ status: 'rejected' })
-    .in('id', input.ids);
+    .in('id', input.ids)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'You do not have permission to reject these dates.' };
   revalidatePath(`/school-calendars/${input.uploadId}`);
   return { ok: true };
 }

@@ -112,12 +112,14 @@ export async function declineCounter(input: { requestId: string }): Promise<Acti
   } = await supabase.auth.getUser();
   if (!user) return { error: 'You are signed out.' };
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('time_requests')
     .update({ status: 'withdrawn' })
     .eq('id', input.requestId)
-    .eq('requester_id', user.id);
+    .eq('requester_id', user.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Request not found or not yours to decline.' };
   revalidatePath('/requests');
   return { ok: true };
 }

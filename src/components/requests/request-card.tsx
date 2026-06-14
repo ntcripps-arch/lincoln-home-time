@@ -26,6 +26,7 @@ const stamp = (ts: string) =>
 export function RequestCard({ request, requesterName, requesterColor, caps }: RequestView) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<'deny' | 'decline' | null>(null);
   const [counterOpen, setCounterOpen] = useState(false);
   const [cStart, setCStart] = useState(request.start_date);
   const [cEnd, setCEnd] = useState(request.end_date);
@@ -78,7 +79,7 @@ export function RequestCard({ request, requesterName, requesterColor, caps }: Re
       {error && <p className="mt-2 text-sm text-rose-700">{error}</p>}
 
       {/* Admin decisions on a pending request from the other household */}
-      {caps.canDecide && !counterOpen && (
+      {caps.canDecide && !counterOpen && confirm !== 'deny' && (
         <div className="mt-3 grid grid-cols-3 gap-2">
           <button
             type="button"
@@ -88,18 +89,23 @@ export function RequestCard({ request, requesterName, requesterColor, caps }: Re
           >
             Approve
           </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => decideRequest({ requestId: request.id, decision: 'deny' }))}
-            className={btnDanger}
-          >
+          <button type="button" disabled={pending} onClick={() => setConfirm('deny')} className={btnDanger}>
             Deny
           </button>
           <button type="button" disabled={pending} onClick={() => setCounterOpen(true)} className={btnGhost}>
             Counter
           </button>
         </div>
+      )}
+
+      {caps.canDecide && confirm === 'deny' && (
+        <ConfirmRow
+          label="Deny this request?"
+          confirmLabel="Deny"
+          pending={pending}
+          onConfirm={() => run(() => decideRequest({ requestId: request.id, decision: 'deny' }))}
+          onCancel={() => setConfirm(null)}
+        />
       )}
 
       {caps.canDecide && counterOpen && (
@@ -171,7 +177,7 @@ export function RequestCard({ request, requesterName, requesterColor, caps }: Re
       )}
 
       {/* Requester responds to a counter on their own request */}
-      {caps.canRespondCounter && request.proposed_start_date && request.proposed_end_date && (
+      {caps.canRespondCounter && request.proposed_start_date && request.proposed_end_date && confirm !== 'decline' && (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -181,16 +187,49 @@ export function RequestCard({ request, requesterName, requesterColor, caps }: Re
           >
             Accept
           </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => declineCounter({ requestId: request.id }))}
-            className={btnDanger}
-          >
+          <button type="button" disabled={pending} onClick={() => setConfirm('decline')} className={btnDanger}>
             Decline
           </button>
         </div>
       )}
+
+      {caps.canRespondCounter && confirm === 'decline' && (
+        <ConfirmRow
+          label="Decline the counter? This withdraws your request."
+          confirmLabel="Decline"
+          pending={pending}
+          onConfirm={() => run(() => declineCounter({ requestId: request.id }))}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </li>
+  );
+}
+
+function ConfirmRow({
+  label,
+  confirmLabel,
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  label: string;
+  confirmLabel: string;
+  pending: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mt-3 space-y-2 rounded-lg border border-rose-200 bg-rose-50 p-3">
+      <p className="text-sm font-medium text-rose-900">{label}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" disabled={pending} onClick={onConfirm} className={btnDanger}>
+          {pending ? 'Working…' : confirmLabel}
+        </button>
+        <button type="button" disabled={pending} onClick={onCancel} className={btnGhost}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }

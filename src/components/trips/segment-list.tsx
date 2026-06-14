@@ -103,18 +103,53 @@ function fromSegment(seg: TripSegment): FieldState {
   };
 }
 
+function isTrackableFlight(seg: TripSegment): boolean {
+  const d = (seg.details ?? {}) as Record<string, unknown>;
+  return seg.segment_type === 'flight' && typeof d.flight_iata === 'string' && d.flight_iata !== '';
+}
+
 export function SegmentList({ tripId, segments }: { tripId: string; segments: TripSegment[] }) {
   const [adding, setAdding] = useState(false);
+  const [refreshing, startRefresh] = useTransition();
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
+
+  const trackable = segments.filter(isTrackableFlight);
+
+  function refreshAll() {
+    setRefreshMsg(null);
+    startRefresh(async () => {
+      let ok = 0;
+      let failed = 0;
+      // Sequential: the free Aviationstack plan is rate-limited, so don't burst.
+      for (const seg of trackable) {
+        const res = await refreshFlightStatus({ id: seg.id, tripId });
+        if ('error' in res) failed += 1;
+        else ok += 1;
+      }
+      setRefreshMsg(
+        `Refreshed ${ok} flight${ok === 1 ? '' : 's'}${failed ? ` · ${failed} couldn’t update` : ''}.`,
+      );
+    });
+  }
 
   return (
     <section className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-foreground">Itinerary</h2>
-        <button type="button" onClick={() => setAdding((v) => !v)} className={btnGhost}>
-          <Plus className="h-4 w-4" />
-          Add segment
-        </button>
+        <div className="flex gap-2">
+          {trackable.length > 1 && (
+            <button type="button" disabled={refreshing} onClick={refreshAll} className={btnGhost}>
+              <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+              {refreshing ? 'Refreshing…' : 'Refresh flights'}
+            </button>
+          )}
+          <button type="button" onClick={() => setAdding((v) => !v)} className={btnGhost}>
+            <Plus className="h-4 w-4" />
+            Add segment
+          </button>
+        </div>
       </div>
+      {refreshMsg && <p className="text-xs text-muted-foreground">{refreshMsg}</p>}
 
       {adding && <SegmentForm tripId={tripId} initial={emptyState()} onDone={() => setAdding(false)} />}
 

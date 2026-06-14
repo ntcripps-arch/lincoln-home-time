@@ -32,6 +32,16 @@ export interface ManualEventRow {
 }
 export type TripWithSegments = Trip & { trip_segments: TripSegment[] };
 
+// Open (pending/countered) time requests, shown as a calendar layer so a
+// proposed date range is visible before it's approved into an exception.
+export interface RequestLayerRow {
+  id: string;
+  title: string;
+  start_date: ISODate;
+  end_date: ISODate;
+  status: string;
+}
+
 // Recurrence definition for a repeating event (one row per series).
 export interface SeriesRow {
   id: string;
@@ -182,11 +192,12 @@ export function tintStyle(color: string): CSSProperties {
 
 // Layer chip/dot styling. Household (parenting) colors come from the DB; the
 // non-parenting layers get fixed, distinct hues that never recolor the day.
-export type LayerKey = 'parenting' | 'school' | 'events' | 'trips';
-export const LAYER_ORDER: LayerKey[] = ['parenting', 'school', 'events', 'trips'];
+export type LayerKey = 'parenting' | 'school' | 'events' | 'trips' | 'requests';
+export const LAYER_ORDER: LayerKey[] = ['parenting', 'school', 'events', 'trips', 'requests'];
 export const LAYER_META: Record<LayerKey, { label: string; dot: string; chip: string }> = {
   parenting: { label: 'Parenting', dot: 'bg-primary', chip: '' },
   school: { label: 'School', dot: 'bg-amber-500', chip: 'bg-amber-100 text-amber-800' },
   events: { label: 'Events', dot: 'bg-violet-500', chip: 'bg-violet-100 text-violet-800' },
   trips: { label: 'Trips', dot: 'bg-sky-500', chip: 'bg-sky-100 text-sky-800' },
+  requests: { label: 'Requests', dot: 'bg-rose-500', chip: 'bg-rose-100 text-rose-800' },
 };

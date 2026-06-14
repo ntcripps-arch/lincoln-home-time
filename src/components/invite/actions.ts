@@ -60,8 +60,13 @@ export async function createInvitation(input: {
 
 export async function revokeInvitation(input: { id: string }): Promise<InviteResult> {
   const supabase = createClient();
-  const { error } = await supabase.from('invitations').update({ status: 'revoked' }).eq('id', input.id);
+  const { data, error } = await supabase
+    .from('invitations')
+    .update({ status: 'revoked' })
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Only an admin can revoke invitations.' };
   revalidatePath('/invite');
   return { ok: true };
 }

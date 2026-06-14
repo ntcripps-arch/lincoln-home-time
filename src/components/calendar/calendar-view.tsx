@@ -2,15 +2,15 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
-import { applyExceptions, eachDay, generateBaseline } from '@/lib/rules-engine';
+import { addDays, applyExceptions, eachDay, generateBaseline } from '@/lib/rules-engine';
 import type { ExceptionRow, Household, ISODate, ScheduleRule } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { DaySheet } from './day-sheet';
 import { EventForm } from './event-form';
 import {
-  buildRangeMap, formatClock, formatMonthLabel, initial, isSameMonth, LAYER_META, LAYER_ORDER,
+  buildRangeMap, formatClock, formatFullDate, formatMonthLabel, initial, isSameMonth, LAYER_META, LAYER_ORDER,
   monthGrid, tintStyle, WEEKDAYS, weekdayShort, type LayerKey, type ManualEventRow,
-  type SchoolDateRow, type SeriesRow, type TripWithSegments,
+  type RequestLayerRow, type SchoolDateRow, type SeriesRow, type TripWithSegments,
 } from './calendar-utils';
 
 interface CalendarViewProps {
@@ -21,6 +21,7 @@ interface CalendarViewProps {
   events: ManualEventRow[];
   series: SeriesRow[];
   trips: TripWithSegments[];
+  requests: RequestLayerRow[];
   hasActivePlan: boolean;
   currentUserId: string;
   isAdmin: boolean;
@@ -30,13 +31,13 @@ interface CalendarViewProps {
 }
 
 export function CalendarView({
-  households, rules, exceptions, schoolDates, events, series, trips, hasActivePlan, currentUserId, isAdmin, today, initialYear, initialMonth,
+  households, rules, exceptions, schoolDates, events, series, trips, requests, hasActivePlan, currentUserId, isAdmin, today, initialYear, initialMonth,
 }: CalendarViewProps) {
   const [view, setView] = useState<'month' | 'agenda'>('month');
   const [year, setYear] = useState(initialYear);
   const [month, setMonth] = useState(initialMonth);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
-    parenting: true, school: true, events: true, trips: true,
+    parenting: true, school: true, events: true, trips: true, requests: true,
   });
   const [selectedDate, setSelectedDate] = useState<ISODate | null>(null);
   const [eventForm, setEventForm] = useState<
@@ -73,6 +74,27 @@ export function CalendarView({
   );
   const dayByDate = useMemo(() => new Map(days.map((d) => [d.date, d])), [days]);
 
+  // "Who has the child now, and when's the next handoff?" — computed over a fixed
+  // 30-day horizon from today, independent of the month being viewed.
+  const status = useMemo(() => {
+    if (!hasActivePlan) return null;
+    const horizon = applyExceptions(
+      generateBaseline({ rules, households, rangeStart: today, rangeEnd: addDays(today, 30) }),
+      exceptions,
+    );
+    const todayDay = horizon[0];
+    const currentId = todayDay?.householdId ?? null;
+    const change = horizon.find((d) => d.householdId && d.householdId !== currentId) ?? null;
+    return {
+      current: currentId ? householdById.get(currentId) ?? null : null,
+      change,
+      changeHousehold: change?.householdId ? householdById.get(change.householdId) ?? null : null,
+    };
+  }, [hasActivePlan, rules, households, exceptions, today, householdById]);
+
+  // Surface gaps in the viewed month where the plan assigns no one.
+  const hasGap = hasActivePlan && days.some((d) => isSameMonth(d.date, year, month) && d.source === 'unassigned');
+
   const schoolByDate = useMemo(
     () => buildRangeMap(schoolDates.map((s) => ({ start: s.date, end: s.end_date ?? s.date, item: s })), grid.gridStart, grid.gridEnd),
     [schoolDates, grid],
@@ -88,6 +110,10 @@ export function CalendarView({
   const exceptionsByDate = useMemo(
     () => buildRangeMap(exceptions.map((x) => ({ start: x.start_date, end: x.end_date, item: x })), grid.gridStart, grid.gridEnd),
     [exceptions, grid],
+  );
+  const requestsByDate = useMemo(
+    () => buildRangeMap(requests.map((r) => ({ start: r.start_date, end: r.end_date, item: r })), grid.gridStart, grid.gridEnd),
+    [requests, grid],
   );
 
   function changeMonth(delta: number) {
@@ -123,6 +149,31 @@ export function CalendarView({
 
   return (
     <div className="space-y-4">
+      {/* Now / next changeover summary — the question this app exists to answer. */}
+      {status?.current && (
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 shadow-sm">
+          <span className="h-9 w-9 shrink-0 rounded-full" style={{ backgroundColor: status.current.color }} aria-hidden />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">
+              With {status.current.name} now
+            </p>
+            {status.change && status.changeHousehold ? (
+              <p className="text-xs text-muted-foreground">
+                Next changeover: {formatFullDate(status.change.date)} → {status.changeHousehold.name}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">No changeover in the next 30 days.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {hasGap && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+          Some days this month have no one assigned — check the parenting plan for gaps.
+        </p>
+      )}
+
       {/* View toggle + add event */}
       <div className="flex items-center justify-between">
         <div className="inline-flex rounded-lg border border-border bg-muted p-0.5">
@@ -237,15 +288,31 @@ export function CalendarView({
               layers.parenting && isException && hh
                 ? { outline: `1.5px dashed ${hh.color}`, outlineOffset: '-3px' }
                 : undefined;
-            const hasSchool = Boolean(layers.school && schoolByDate.get(date)?.length);
-            const hasEvents = Boolean(layers.events && eventsByDate.get(date)?.length);
-            const hasTrips = Boolean(layers.trips && tripsByDate.get(date)?.length);
+            const schoolCount = layers.school ? schoolByDate.get(date)?.length ?? 0 : 0;
+            const eventCount = layers.events ? eventsByDate.get(date)?.length ?? 0 : 0;
+            const tripCount = layers.trips ? tripsByDate.get(date)?.length ?? 0 : 0;
+            const requestCount = layers.requests ? requestsByDate.get(date)?.length ?? 0 : 0;
+            const hasSchool = schoolCount > 0;
+            const hasEvents = eventCount > 0;
+            const hasTrips = tripCount > 0;
+            const hasRequests = requestCount > 0;
+            const ariaLabel = [
+              formatFullDate(date),
+              layers.parenting && hh ? `with ${hh.name}${isException ? ' (swap)' : ''}` : null,
+              eventCount ? `${eventCount} event${eventCount > 1 ? 's' : ''}` : null,
+              schoolCount ? 'school' : null,
+              tripCount ? `${tripCount} trip${tripCount > 1 ? 's' : ''}` : null,
+              requestCount ? `${requestCount} pending request${requestCount > 1 ? 's' : ''}` : null,
+            ]
+              .filter(Boolean)
+              .join(', ');
 
             return (
               <button
                 key={date}
                 type="button"
                 onClick={() => setSelectedDate(date)}
+                aria-label={ariaLabel}
                 style={{ ...tint, ...exOutline }}
                 className={cn(
                   'relative flex min-h-[3.5rem] flex-col rounded-lg border border-black/5 p-1 text-left transition sm:min-h-[4.5rem]',
@@ -275,6 +342,7 @@ export function CalendarView({
                   {hasSchool && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
                   {hasEvents && <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />}
                   {hasTrips && <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />}
+                  {hasRequests && <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />}
                 </div>
               </button>
             );
@@ -290,6 +358,7 @@ export function CalendarView({
             const sch = layers.school ? schoolByDate.get(date) ?? [] : [];
             const evs = layers.events ? eventsByDate.get(date) ?? [] : [];
             const trs = layers.trips ? tripsByDate.get(date) ?? [] : [];
+            const reqs = layers.requests ? requestsByDate.get(date) ?? [] : [];
             return (
               <li key={date}>
                 <button
@@ -320,7 +389,7 @@ export function CalendarView({
                         {da?.dropoffTime && `Dropoff ${formatClock(da.dropoffTime)}`}
                       </p>
                     )}
-                    {sch.length + evs.length + trs.length > 0 && (
+                    {sch.length + evs.length + trs.length + reqs.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {sch.map((s) => (
                           <Chip key={s.id} className={LAYER_META.school.chip}>{s.title}</Chip>
@@ -330,6 +399,9 @@ export function CalendarView({
                         ))}
                         {trs.map((t) => (
                           <Chip key={t.id} className={LAYER_META.trips.chip}>{t.title}</Chip>
+                        ))}
+                        {reqs.map((r) => (
+                          <Chip key={r.id} className={LAYER_META.requests.chip}>{r.title}</Chip>
                         ))}
                       </div>
                     )}
@@ -351,6 +423,7 @@ export function CalendarView({
           school={schoolByDate.get(selectedDate) ?? []}
           events={eventsByDate.get(selectedDate) ?? []}
           trips={tripsByDate.get(selectedDate) ?? []}
+          requests={requestsByDate.get(selectedDate) ?? []}
           currentUserId={currentUserId}
           isAdmin={isAdmin}
           onAddEvent={addEvent}

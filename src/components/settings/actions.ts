@@ -49,15 +49,17 @@ export async function updateHousehold(input: {
   const supabase = createClient();
   if (!input.name.trim()) return { error: 'Household name is required.' };
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('households')
     .update({
       name: input.name.trim(),
       pickup_default: input.pickupDefault?.trim() || null,
       dropoff_default: input.dropoffDefault?.trim() || null,
     })
-    .eq('id', input.id);
+    .eq('id', input.id)
+    .select('id');
   if (error) return { error: error.message };
+  if (!data?.length) return { error: 'Only an admin can edit households.' };
   revalidatePath('/settings');
   revalidatePath('/calendar'); // pickup/dropoff surface in the day sheet
   return { ok: true };
