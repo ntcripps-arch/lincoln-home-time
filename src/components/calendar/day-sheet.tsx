@@ -3,11 +3,13 @@
 import { useState, useTransition } from 'react';
 import { Bed, Car, MapPin, Pencil, Plane, Plus, Trash2 } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
+import { cn } from '@/lib/utils';
 import type { DayAssignment, ExceptionRow, Household, ISODate, SegmentType, TripSegment } from '@/lib/types';
 import {
-  exceptionTypeLabel, formatClock, formatFullDate, formatStamp, manualCategoryLabel,
+  exceptionTypeLabel, formatClock, formatFullDate, manualCategoryLabel,
   schoolCategoryLabel, type ManualEventRow, type SchoolDateRow, type TripWithSegments,
 } from './calendar-utils';
+import { segmentDisplay } from '@/components/trips/trip-utils';
 import { deleteEvent } from './event-actions';
 
 interface DaySheetProps {
@@ -200,15 +202,42 @@ function Row({ dot, title, sub, note }: { dot: string; title: string; sub: strin
 
 function SegmentRow({ seg }: { seg: TripSegment }) {
   const Icon = SEGMENT_ICON[seg.segment_type] ?? MapPin;
-  const times = [formatStamp(seg.start_at), formatStamp(seg.end_at)].filter(Boolean).join(' → ');
+  const v = segmentDisplay(seg);
   return (
     <li className="flex gap-2.5">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-      <div className="min-w-0 text-sm">
-        <p className="font-medium text-foreground">{seg.title ?? seg.segment_type}</p>
-        {seg.location && <p className="text-xs text-muted-foreground">{seg.location}</p>}
-        {times && <p className="text-xs text-muted-foreground">{times}</p>}
-        {seg.confirmation && <p className="text-xs text-muted-foreground">Confirmation: {seg.confirmation}</p>}
+      <div className="min-w-0 flex-1 text-sm">
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-medium text-foreground">{v.title}</p>
+          {v.status && (
+            <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium', v.status.className)}>
+              {v.status.label}
+            </span>
+          )}
+        </div>
+        {v.location && <p className="text-xs text-muted-foreground">{v.location}</p>}
+        {v.isFlight ? (
+          <>
+            {v.departs && <p className="text-xs text-muted-foreground">Departs {v.departs}</p>}
+            {v.arrives && (
+              <p className="text-xs text-muted-foreground">
+                Arrives {v.arrives}
+                {v.arrivesPt && <span className="text-muted-foreground/70"> · {v.arrivesPt}</span>}
+              </p>
+            )}
+            {v.actual && (
+              <p className="text-xs font-medium text-foreground">
+                {v.actualLabel} {v.actual}
+                {v.actualPt && <span className="font-normal text-muted-foreground"> · {v.actualPt}</span>}
+              </p>
+            )}
+          </>
+        ) : (
+          v.times && <p className="text-xs text-muted-foreground">{v.times}</p>
+        )}
+        {v.confirmation && <p className="text-xs text-muted-foreground">Confirmation: {v.confirmation}</p>}
+        {v.extra && <p className="text-xs text-muted-foreground">{v.extra}</p>}
+        {v.statusUpdated && <p className="text-[11px] text-muted-foreground/70">Updated {v.statusUpdated}</p>}
       </div>
     </li>
   );

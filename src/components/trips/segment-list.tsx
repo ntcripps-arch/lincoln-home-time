@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { Bed, Car, MapPin, Plane, Plus } from 'lucide-react';
+import { Bed, Car, MapPin, Plane, Plus, RefreshCw, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { fieldClass } from '@/components/auth/field-styles';
-import { formatInstant, toLocalInput } from '@/lib/dates';
+import { FAMILY_TZ, TIME_ZONES, toLocalInput, toZonedInput } from '@/lib/dates';
 import type { SegmentType, TripSegment } from '@/lib/types';
 import { addSegment, deleteSegment, updateSegment, type TripResult } from './actions';
-import { SEGMENT_TYPES, segmentTypeLabel } from './trip-utils';
+import { lookupFlight, refreshFlightStatus } from './flight-lookup';
+import { SEGMENT_TYPES, segmentDisplay, segmentTypeLabel } from './trip-utils';
 
 const SEGMENT_ICON: Record<SegmentType, typeof Plane> = {
   flight: Plane,
@@ -15,9 +17,7 @@ const SEGMENT_ICON: Record<SegmentType, typeof Plane> = {
   other: MapPin,
 };
 
-// Per-type labels/placeholders so the form reads naturally.
-const COPY: Record<SegmentType, { title: string; start: string; end: string; location: string }> = {
-  flight: { title: 'UA 1234 SEA→SNA', start: 'Departure', end: 'Arrival', location: 'Airports (SEA → SNA)' },
+const NON_FLIGHT_COPY: Record<string, { title: string; start: string; end: string; location: string }> = {
   lodging: { title: 'Marriott Downtown', start: 'Check-in', end: 'Check-out', location: 'Address' },
   ground: { title: 'Rental car', start: 'Pick-up', end: 'Drop-off', location: 'Location' },
   other: { title: 'Activity', start: 'Start', end: 'End', location: 'Location' },
@@ -29,54 +29,78 @@ const btnPrimary = `${btnBase} bg-primary text-primary-foreground hover:bg-prima
 const btnGhost = `${btnBase} border border-border bg-card text-foreground hover:bg-muted`;
 const btnDanger = `${btnBase} border border-border bg-card text-rose-700 hover:bg-rose-50`;
 
-const stamp = (ts: string | null) =>
-  ts ? `${formatInstant(ts, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} PT` : null;
-
 interface FieldState {
   segmentType: SegmentType;
+  confirmation: string;
+  // non-flight
   title: string;
   startLocal: string;
   endLocal: string;
   location: string;
-  confirmation: string;
+  room: string;
+  // flight
   airline: string;
   flightNumber: string;
-  room: string;
+  flightIata: string;
+  flightDate: string;
+  depCity: string;
+  depIata: string;
+  depTz: string;
+  depLocal: string;
+  arrCity: string;
+  arrIata: string;
+  arrTz: string;
+  arrLocal: string;
+  status: string;
+  depActual: string;
+  depEstimated: string;
+  arrActual: string;
+  arrEstimated: string;
+  depGate: string;
+  arrGate: string;
+  arrBaggage: string;
 }
 
 function emptyState(): FieldState {
   return {
-    segmentType: 'flight',
-    title: '',
-    startLocal: '',
-    endLocal: '',
-    location: '',
-    confirmation: '',
-    airline: '',
-    flightNumber: '',
-    room: '',
+    segmentType: 'flight', confirmation: '',
+    title: '', startLocal: '', endLocal: '', location: '', room: '',
+    airline: '', flightNumber: '', flightIata: '', flightDate: '',
+    depCity: '', depIata: '', depTz: FAMILY_TZ, depLocal: '',
+    arrCity: '', arrIata: '', arrTz: FAMILY_TZ, arrLocal: '',
+    status: '', depActual: '', depEstimated: '', arrActual: '', arrEstimated: '', depGate: '', arrGate: '', arrBaggage: '',
   };
 }
 
 function fromSegment(seg: TripSegment): FieldState {
-  const details = (seg.details ?? {}) as Record<string, unknown>;
+  const d = (seg.details ?? {}) as Record<string, unknown>;
+  const s = (k: string) => (typeof d[k] === 'string' ? (d[k] as string) : '');
+  const e = emptyState();
+  if (seg.segment_type === 'flight') {
+    const depTz = s('dep_tz') || FAMILY_TZ;
+    const arrTz = s('arr_tz') || FAMILY_TZ;
+    return {
+      ...e,
+      segmentType: 'flight',
+      confirmation: seg.confirmation ?? '',
+      airline: s('airline'), flightNumber: s('flight_number'), flightIata: s('flight_iata'), flightDate: s('flight_date'),
+      depCity: s('dep_city'), depIata: s('dep_iata'), depTz, depLocal: seg.start_at ? toZonedInput(seg.start_at, depTz) : '',
+      arrCity: s('arr_city'), arrIata: s('arr_iata'), arrTz, arrLocal: seg.end_at ? toZonedInput(seg.end_at, arrTz) : '',
+      status: s('status'), depActual: s('dep_actual'), depEstimated: s('dep_estimated'),
+      arrActual: s('arr_actual'), arrEstimated: s('arr_estimated'),
+      depGate: s('dep_gate'), arrGate: s('arr_gate'), arrBaggage: s('arr_baggage'),
+    };
+  }
   return {
+    ...e,
     segmentType: seg.segment_type,
+    confirmation: seg.confirmation ?? '',
     title: seg.title ?? '',
     startLocal: seg.start_at ? toLocalInput(seg.start_at) : '',
     endLocal: seg.end_at ? toLocalInput(seg.end_at) : '',
     location: seg.location ?? '',
-    confirmation: seg.confirmation ?? '',
-    airline: typeof details.airline === 'string' ? details.airline : '',
-    flightNumber: typeof details.flight_number === 'string' ? details.flight_number : '',
-    room: typeof details.room === 'string' ? details.room : '',
+    room: s('room'),
   };
-}
-
-function detailsFor(s: FieldState): Record<string, string> {
-  if (s.segmentType === 'flight') return { airline: s.airline, flight_number: s.flightNumber };
-  if (s.segmentType === 'lodging') return { room: s.room };
-  return {};
 }
 
 export function SegmentList({ tripId, segments }: { tripId: string; segments: TripSegment[] }) {
@@ -114,9 +138,17 @@ function SegmentCard({ tripId, seg }: { tripId: string; seg: TripSegment }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const Icon = SEGMENT_ICON[seg.segment_type] ?? MapPin;
-  const times = [stamp(seg.start_at), stamp(seg.end_at)].filter(Boolean).join(' → ');
+  const v = segmentDisplay(seg);
   const details = (seg.details ?? {}) as Record<string, unknown>;
-  const extras = [details.airline, details.flight_number, details.room].filter((v): v is string => typeof v === 'string' && v !== '');
+  const trackable = v.isFlight && typeof details.flight_iata === 'string' && details.flight_iata !== '';
+
+  function run(fn: () => Promise<TripResult | { ok: true } | { error: string }>) {
+    setError(null);
+    startTransition(async () => {
+      const res = await fn();
+      if ('error' in res) setError(res.error);
+    });
+  }
 
   if (editing) {
     return (
@@ -131,29 +163,54 @@ function SegmentCard({ tripId, seg }: { tripId: string; seg: TripSegment }) {
       <div className="flex gap-3">
         <Icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">{seg.title ?? segmentTypeLabel(seg.segment_type)}</p>
-          {seg.location && <p className="text-xs text-muted-foreground">{seg.location}</p>}
-          {times && <p className="text-xs text-muted-foreground">{times}</p>}
-          {seg.confirmation && <p className="text-xs text-muted-foreground">Confirmation: {seg.confirmation}</p>}
-          {extras.length > 0 && <p className="text-xs text-muted-foreground">{extras.join(' · ')}</p>}
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-semibold text-foreground">{v.title}</p>
+            {v.status && (
+              <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium', v.status.className)}>
+                {v.status.label}
+              </span>
+            )}
+          </div>
+          {v.location && <p className="text-xs text-muted-foreground">{v.location}</p>}
+
+          {v.isFlight ? (
+            <div className="mt-1 space-y-0.5 text-xs">
+              {v.departs && <p className="text-muted-foreground">Departs {v.departs}</p>}
+              {v.arrives && (
+                <p className="text-muted-foreground">
+                  Arrives {v.arrives}
+                  {v.arrivesPt && <span className="text-muted-foreground/70"> · {v.arrivesPt}</span>}
+                </p>
+              )}
+              {v.actual && (
+                <p className="font-medium text-foreground">
+                  {v.actualLabel} {v.actual}
+                  {v.actualPt && <span className="font-normal text-muted-foreground"> · {v.actualPt}</span>}
+                </p>
+              )}
+            </div>
+          ) : (
+            v.times && <p className="text-xs text-muted-foreground">{v.times}</p>
+          )}
+
+          {v.confirmation && <p className="mt-1 text-xs text-muted-foreground">Confirmation: {v.confirmation}</p>}
+          {v.extra && <p className="text-xs text-muted-foreground">{v.extra}</p>}
+          {v.statusUpdated && <p className="text-[11px] text-muted-foreground/70">Status updated {v.statusUpdated}</p>}
+          {error && <p className="mt-1 text-xs text-rose-700">{error}</p>}
         </div>
       </div>
-      {error && <p className="mt-2 text-sm text-rose-700">{error}</p>}
-      <div className="mt-3 flex gap-2">
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {trackable && (
+          <button type="button" disabled={pending} onClick={() => run(() => refreshFlightStatus({ id: seg.id, tripId }))} className={btnGhost}>
+            <RefreshCw className="h-4 w-4" />
+            Refresh status
+          </button>
+        )}
         <button type="button" onClick={() => setEditing(true)} className={btnGhost}>
           Edit
         </button>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() =>
-            startTransition(async () => {
-              const res = await deleteSegment({ id: seg.id, tripId });
-              if ('error' in res) setError(res.error);
-            })
-          }
-          className={btnDanger}
-        >
+        <button type="button" disabled={pending} onClick={() => run(() => deleteSegment({ id: seg.id, tripId }))} className={btnDanger}>
           Delete
         </button>
       </div>
@@ -175,38 +232,67 @@ function SegmentForm({
   const [s, setS] = useState<FieldState>(initial);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const copy = COPY[s.segmentType];
+  const [looking, setLooking] = useState(false);
+  const [lookupMsg, setLookupMsg] = useState<string | null>(null);
 
   function set<K extends keyof FieldState>(key: K, value: FieldState[K]) {
     setS((prev) => ({ ...prev, [key]: value }));
   }
 
+  async function doLookup() {
+    setLookupMsg(null);
+    setError(null);
+    setLooking(true);
+    const res = await lookupFlight({ flightIata: s.flightIata });
+    setLooking(false);
+    if ('error' in res) {
+      setLookupMsg(res.error);
+      return;
+    }
+    const f = res.flight;
+    setS((prev) => ({
+      ...prev,
+      airline: f.airline || prev.airline,
+      flightNumber: f.flightNumber || prev.flightNumber,
+      flightIata: f.flightIata || prev.flightIata,
+      flightDate: f.flightDate || prev.flightDate,
+      depCity: f.depCity || prev.depCity, depIata: f.depIata, depTz: f.depTz || prev.depTz,
+      arrCity: f.arrCity || prev.arrCity, arrIata: f.arrIata, arrTz: f.arrTz || prev.arrTz,
+      depLocal: f.depScheduled ? toZonedInput(f.depScheduled, f.depTz || prev.depTz) : prev.depLocal,
+      arrLocal: f.arrScheduled ? toZonedInput(f.arrScheduled, f.arrTz || prev.arrTz) : prev.arrLocal,
+      status: f.status, depActual: f.depActual ?? '', depEstimated: f.depEstimated ?? '',
+      arrActual: f.arrActual ?? '', arrEstimated: f.arrEstimated ?? '',
+      depGate: f.depGate, arrGate: f.arrGate, arrBaggage: f.arrBaggage,
+    }));
+    setLookupMsg(`Found ${[f.airline, f.flightNumber].filter(Boolean).join(' ')}${f.status ? ` · ${f.status}` : ''}.`);
+  }
+
   function submit() {
     setError(null);
-    const base = {
-      tripId,
-      segmentType: s.segmentType,
-      title: s.title,
-      startLocal: s.startLocal,
-      endLocal: s.endLocal,
-      location: s.location,
-      confirmation: s.confirmation,
-      details: detailsFor(s),
-    };
+    if (s.segmentType === 'flight') {
+      if (!s.airline.trim() && !s.flightNumber.trim() && !s.flightIata.trim()) {
+        setError('Add an airline or flight number (or look one up).');
+        return;
+      }
+    }
     startTransition(async () => {
       const res: TripResult = segmentId
-        ? await updateSegment({ id: segmentId, ...base })
-        : await addSegment(base);
+        ? await updateSegment({ id: segmentId, tripId, ...s })
+        : await addSegment({ tripId, ...s });
       if ('error' in res) setError(res.error);
       else onDone();
     });
   }
 
+  const isFlight = s.segmentType === 'flight';
+  const copy = NON_FLIGHT_COPY[s.segmentType] ?? NON_FLIGHT_COPY.other;
+
   return (
     <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-4">
       {error && <p className="text-sm text-rose-700">{error}</p>}
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground">Type</label>
+
+      <label className="block space-y-1">
+        <span className="text-sm font-medium text-foreground">Type</span>
         <select value={s.segmentType} onChange={(e) => set('segmentType', e.target.value as SegmentType)} className={fieldClass}>
           {SEGMENT_TYPES.map((t) => (
             <option key={t.value} value={t.value}>
@@ -214,52 +300,90 @@ function SegmentForm({
             </option>
           ))}
         </select>
-      </div>
+      </label>
 
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground">Title</label>
-        <input value={s.title} onChange={(e) => set('title', e.target.value)} className={fieldClass} placeholder={copy.title} />
-      </div>
-
-      {s.segmentType === 'flight' && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground">Airline</label>
-            <input value={s.airline} onChange={(e) => set('airline', e.target.value)} className={fieldClass} placeholder="United" />
+      {isFlight ? (
+        <>
+          <div className="space-y-2 rounded-lg border border-dashed border-border bg-card p-3">
+            <p className="text-sm font-medium text-foreground">Look up the flight</p>
+            <div className="flex gap-2">
+              <input
+                value={s.flightIata}
+                onChange={(e) => set('flightIata', e.target.value)}
+                className={fieldClass}
+                placeholder="Flight no. (e.g. BA49)"
+              />
+              <button type="button" onClick={doLookup} disabled={looking || !s.flightIata.trim()} className={btnGhost}>
+                <Search className="h-4 w-4" />
+                {looking ? '…' : 'Look up'}
+              </button>
+            </div>
+            {lookupMsg && <p className="text-xs text-muted-foreground">{lookupMsg}</p>}
+            <p className="text-[11px] text-muted-foreground">
+              Auto-fills airline, airports, times, and time zones. Works best on the travel day; otherwise fill in below.
+            </p>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground">Flight #</label>
-            <input value={s.flightNumber} onChange={(e) => set('flightNumber', e.target.value)} className={fieldClass} placeholder="UA 1234" />
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Airline">
+              <input value={s.airline} onChange={(e) => set('airline', e.target.value)} className={fieldClass} placeholder="British Airways" />
+            </Field>
+            <Field label="Flight #">
+              <input value={s.flightNumber} onChange={(e) => set('flightNumber', e.target.value)} className={fieldClass} placeholder="BA 49" />
+            </Field>
           </div>
-        </div>
+
+          <Field label="Departure city / airport">
+            <input value={s.depCity} onChange={(e) => set('depCity', e.target.value)} className={fieldClass} placeholder="Seattle (SEA)" />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Departs">
+              <input type="datetime-local" value={s.depLocal} onChange={(e) => set('depLocal', e.target.value)} className={fieldClass} />
+            </Field>
+            <Field label="Departure time zone">
+              <ZoneSelect value={s.depTz} onChange={(z) => set('depTz', z)} />
+            </Field>
+          </div>
+
+          <Field label="Arrival city / airport">
+            <input value={s.arrCity} onChange={(e) => set('arrCity', e.target.value)} className={fieldClass} placeholder="London Heathrow (LHR)" />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Arrives">
+              <input type="datetime-local" value={s.arrLocal} onChange={(e) => set('arrLocal', e.target.value)} className={fieldClass} />
+            </Field>
+            <Field label="Arrival time zone">
+              <ZoneSelect value={s.arrTz} onChange={(z) => set('arrTz', z)} />
+            </Field>
+          </div>
+        </>
+      ) : (
+        <>
+          <Field label="Title">
+            <input value={s.title} onChange={(e) => set('title', e.target.value)} className={fieldClass} placeholder={copy.title} />
+          </Field>
+          {s.segmentType === 'lodging' && (
+            <Field label="Room">
+              <input value={s.room} onChange={(e) => set('room', e.target.value)} className={fieldClass} placeholder="King suite" />
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={`${copy.start} (PT)`}>
+              <input type="datetime-local" value={s.startLocal} onChange={(e) => set('startLocal', e.target.value)} className={fieldClass} />
+            </Field>
+            <Field label={`${copy.end} (PT)`}>
+              <input type="datetime-local" value={s.endLocal} onChange={(e) => set('endLocal', e.target.value)} className={fieldClass} />
+            </Field>
+          </div>
+          <Field label="Location">
+            <input value={s.location} onChange={(e) => set('location', e.target.value)} className={fieldClass} placeholder={copy.location} />
+          </Field>
+        </>
       )}
-      {s.segmentType === 'lodging' && (
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium text-foreground">Room</label>
-          <input value={s.room} onChange={(e) => set('room', e.target.value)} className={fieldClass} placeholder="King suite" />
-        </div>
-      )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium text-foreground">{copy.start} <span className="text-muted-foreground">(PT)</span></label>
-          <input type="datetime-local" value={s.startLocal} onChange={(e) => set('startLocal', e.target.value)} className={fieldClass} />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium text-foreground">{copy.end} <span className="text-muted-foreground">(PT)</span></label>
-          <input type="datetime-local" value={s.endLocal} onChange={(e) => set('endLocal', e.target.value)} className={fieldClass} />
-        </div>
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground">Location</label>
-        <input value={s.location} onChange={(e) => set('location', e.target.value)} className={fieldClass} placeholder={copy.location} />
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground">Confirmation <span className="text-muted-foreground">(optional)</span></label>
+      <Field label="Confirmation (optional)">
         <input value={s.confirmation} onChange={(e) => set('confirmation', e.target.value)} className={fieldClass} placeholder="ABC123" />
-      </div>
+      </Field>
 
       <div className="grid grid-cols-2 gap-2">
         <button type="button" disabled={pending} onClick={submit} className={btnPrimary}>
@@ -270,5 +394,26 @@ function SegmentForm({
         </button>
       </div>
     </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function ZoneSelect({ value, onChange }: { value: string; onChange: (z: string) => void }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={fieldClass}>
+      {TIME_ZONES.map((z) => (
+        <option key={z.value} value={z.value}>
+          {z.label}
+        </option>
+      ))}
+    </select>
   );
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { fromLocalInput } from '@/lib/dates';
+import { FAMILY_TZ, fromLocalInput, fromZonedInput } from '@/lib/dates';
 import type { SegmentType } from '@/lib/types';
 
 export type TripResult = { ok: true } | { error: string };
@@ -101,18 +101,77 @@ export async function deleteTrip(input: { id: string }): Promise<TripResult> {
 interface SegmentInput {
   tripId: string;
   segmentType: SegmentType;
+  confirmation: string;
+  // non-flight
   title: string;
   startLocal: string;
   endLocal: string;
   location: string;
-  confirmation: string;
-  details: Record<string, string>;
+  room: string;
+  // flight (each endpoint carries its own IANA tz)
+  airline: string;
+  flightNumber: string;
+  flightIata: string;
+  flightDate: string;
+  depCity: string;
+  depIata: string;
+  depTz: string;
+  depLocal: string;
+  arrCity: string;
+  arrIata: string;
+  arrTz: string;
+  arrLocal: string;
+  status: string;
+  depActual: string;
+  depEstimated: string;
+  arrActual: string;
+  arrEstimated: string;
+  depGate: string;
+  arrGate: string;
+  arrBaggage: string;
 }
 
+const cleanDetails = (o: Record<string, string>) =>
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v != null && v.trim() !== ''));
+
 function normalizeSegment(input: SegmentInput) {
-  const details = Object.fromEntries(
-    Object.entries(input.details).filter(([, v]) => v.trim() !== ''),
-  );
+  if (input.segmentType === 'flight') {
+    const title =
+      [input.airline, input.flightNumber].map((x) => x.trim()).filter(Boolean).join(' ') ||
+      input.flightIata.trim() ||
+      'Flight';
+    const location = [input.depCity.trim(), input.arrCity.trim()].filter(Boolean).join(' → ') || null;
+    return {
+      segment_type: 'flight' as const,
+      title,
+      // Each endpoint's wall-clock is interpreted in its own airport timezone.
+      start_at: input.depLocal ? fromZonedInput(input.depLocal, input.depTz || FAMILY_TZ) : null,
+      end_at: input.arrLocal ? fromZonedInput(input.arrLocal, input.arrTz || FAMILY_TZ) : null,
+      location,
+      confirmation: input.confirmation.trim() || null,
+      details: cleanDetails({
+        airline: input.airline,
+        flight_number: input.flightNumber,
+        flight_iata: input.flightIata,
+        flight_date: input.flightDate,
+        dep_city: input.depCity,
+        dep_iata: input.depIata,
+        dep_tz: input.depTz,
+        arr_city: input.arrCity,
+        arr_iata: input.arrIata,
+        arr_tz: input.arrTz,
+        status: input.status,
+        dep_actual: input.depActual,
+        dep_estimated: input.depEstimated,
+        arr_actual: input.arrActual,
+        arr_estimated: input.arrEstimated,
+        dep_gate: input.depGate,
+        arr_gate: input.arrGate,
+        arr_baggage: input.arrBaggage,
+      }),
+    };
+  }
+
   return {
     segment_type: input.segmentType,
     title: input.title.trim() || null,
@@ -120,7 +179,7 @@ function normalizeSegment(input: SegmentInput) {
     end_at: input.endLocal ? fromLocalInput(input.endLocal) : null,
     location: input.location.trim() || null,
     confirmation: input.confirmation.trim() || null,
-    details,
+    details: input.segmentType === 'lodging' ? cleanDetails({ room: input.room }) : {},
   };
 }
 

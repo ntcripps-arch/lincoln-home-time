@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatDay, formatInstant, fromLocalInput, todayISO } from './dates';
+import { formatDay, formatInstant, fromLocalInput, fromZonedInput, todayISO } from './dates';
 import { weekday } from './rules-engine';
 
 describe('todayISO', () => {
@@ -35,5 +35,22 @@ describe('fromLocalInput (Pacific wall-clock -> instant)', () => {
   it('round-trips back to the same wall-clock via formatInstant', () => {
     const iso = fromLocalInput('2026-07-17T08:10');
     expect(formatInstant(iso, { hour: 'numeric', minute: '2-digit' })).toBe('8:10 AM');
+  });
+});
+
+describe('fromZonedInput (arbitrary tz, for flights)', () => {
+  it('London BST (+1) in July', () => {
+    expect(fromZonedInput('2026-07-04T06:30', 'Europe/London')).toBe('2026-07-04T05:30:00.000Z');
+  });
+  it('London GMT (+0) in January (pins DST)', () => {
+    expect(fromZonedInput('2026-01-04T06:30', 'Europe/London')).toBe('2026-01-04T06:30:00.000Z');
+  });
+  it('a SEA 1:30 PM PDT departure and LHR 8:30 AM BST arrival land at the right instants', () => {
+    const dep = fromZonedInput('2026-07-03T13:30', 'America/Los_Angeles'); // 20:30Z
+    const arr = fromZonedInput('2026-07-04T08:30', 'Europe/London'); // 07:30Z next day
+    expect(dep).toBe('2026-07-03T20:30:00.000Z');
+    expect(arr).toBe('2026-07-04T07:30:00.000Z');
+    // The same arrival instant reads as 8:30 AM in London and 12:30 AM PT.
+    expect(formatInstant(arr, { hour: 'numeric', minute: '2-digit' })).toBe('12:30 AM');
   });
 });

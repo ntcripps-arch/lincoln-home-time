@@ -23,19 +23,30 @@ export function formatDay(iso: string, opts: Intl.DateTimeFormatOptions): string
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { timeZone: 'UTC', ...opts });
 }
 
-/** Format a timestamptz instant (trip segments, created_at) in the family tz. */
-export function formatInstant(ts: string, opts: Intl.DateTimeFormatOptions): string {
-  return new Date(ts).toLocaleString('en-US', { timeZone: FAMILY_TZ, ...opts });
+/** Format a timestamptz instant in an arbitrary IANA tz. */
+export function formatInZone(ts: string, timeZone: string, opts: Intl.DateTimeFormatOptions): string {
+  return new Date(ts).toLocaleString('en-US', { timeZone, ...opts });
 }
 
-/** 'YYYY-MM-DDTHH:mm' Pacific wall-clock (datetime-local input) -> ISO instant. */
-export function fromLocalInput(local: string): string {
+/** Format a timestamptz instant (trip segments, created_at) in the family tz. */
+export function formatInstant(ts: string, opts: Intl.DateTimeFormatOptions): string {
+  return formatInZone(ts, FAMILY_TZ, opts);
+}
+
+/** Short tz abbreviation for an instant in a given zone (e.g. PDT, GMT+1). */
+export function zoneAbbrev(ts: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' }).formatToParts(new Date(ts));
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+}
+
+/** 'YYYY-MM-DDTHH:mm' wall-clock in a given IANA tz -> ISO instant. */
+export function fromZonedInput(local: string, timeZone: string): string {
   const [d, t] = local.split('T');
   const [y, mo, da] = d.split('-').map(Number);
   const [h, mi] = t.split(':').map(Number);
   const utc = Date.UTC(y, mo - 1, da, h, mi); // treat wall-clock as UTC
   const p = new Intl.DateTimeFormat('en-US', {
-    timeZone: FAMILY_TZ,
+    timeZone,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   })
@@ -48,11 +59,10 @@ export function fromLocalInput(local: string): string {
   return new Date(utc - offset).toISOString();
 }
 
-/** Inverse of fromLocalInput: ISO instant -> 'YYYY-MM-DDTHH:mm' Pacific wall-clock,
- *  for pre-filling a datetime-local input when editing. */
-export function toLocalInput(iso: string): string {
+/** Inverse: ISO instant -> 'YYYY-MM-DDTHH:mm' wall-clock in a given tz (edit prefill). */
+export function toZonedInput(iso: string, timeZone: string): string {
   const p = new Intl.DateTimeFormat('en-US', {
-    timeZone: FAMILY_TZ,
+    timeZone,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   })
@@ -63,3 +73,33 @@ export function toLocalInput(iso: string): string {
     }, {});
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
+
+/** Pacific wall-clock convenience wrappers (manual events, lodging, etc.). */
+export function fromLocalInput(local: string): string {
+  return fromZonedInput(local, FAMILY_TZ);
+}
+export function toLocalInput(iso: string): string {
+  return toZonedInput(iso, FAMILY_TZ);
+}
+
+// Curated IANA zones for the flight timezone pickers (covers the realistic set).
+export const TIME_ZONES: { value: string; label: string }[] = [
+  { value: 'America/Los_Angeles', label: 'Pacific — Seattle, LA' },
+  { value: 'America/Denver', label: 'Mountain — Denver' },
+  { value: 'America/Phoenix', label: 'Arizona — Phoenix' },
+  { value: 'America/Chicago', label: 'Central — Chicago' },
+  { value: 'America/New_York', label: 'Eastern — New York' },
+  { value: 'America/Anchorage', label: 'Alaska — Anchorage' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii — Honolulu' },
+  { value: 'America/Toronto', label: 'Eastern Canada — Toronto' },
+  { value: 'America/Mexico_City', label: 'Mexico City' },
+  { value: 'Europe/London', label: 'UK — London' },
+  { value: 'Europe/Paris', label: 'Central Europe — Paris, Berlin' },
+  { value: 'Europe/Athens', label: 'Eastern Europe — Athens' },
+  { value: 'Asia/Dubai', label: 'Gulf — Dubai' },
+  { value: 'Asia/Kolkata', label: 'India' },
+  { value: 'Asia/Singapore', label: 'Singapore' },
+  { value: 'Asia/Tokyo', label: 'Japan — Tokyo' },
+  { value: 'Australia/Sydney', label: 'Sydney' },
+  { value: 'Pacific/Auckland', label: 'Auckland' },
+];
