@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { todayISO } from '@/lib/dates';
 import { aviationstackInstant, flightQueryParams, friendlyFlightError, isRestriction } from './flight-times';
 
 // Aviationstack v1 real-time flights.
@@ -122,7 +123,13 @@ export async function refreshFlightStatus(input: { id: string; tripId: string })
   const iata = str(details.flight_iata);
   if (!iata) return { error: 'This flight has no flight number to track. Add one by looking it up.' };
 
-  const r = await lookupFlight({ flightIata: iata, flightDate: str(details.flight_date) || undefined });
+  // No live data exists before the travel day — don't spend a request on it.
+  const flightDate = str(details.flight_date);
+  if (flightDate && todayISO() < flightDate) {
+    return { error: 'Flight status updates are available on the day of travel.' };
+  }
+
+  const r = await lookupFlight({ flightIata: iata, flightDate: flightDate || undefined });
   if ('error' in r) return { error: r.error };
   const f = r.flight;
 

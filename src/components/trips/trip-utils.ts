@@ -37,6 +37,30 @@ export function isFlightTrackingActive(seg: TripSegment, nowMs: number): boolean
   return nowMs >= depMs - TRACK_PRE_MS && nowMs <= arrMs + TRACK_POST_MS;
 }
 
+// The flight's travel date (family/Pacific tz): the stored flight_date if set,
+// else the departure instant's Pacific calendar date.
+function flightDepDate(seg: TripSegment): ISODate | null {
+  const d = (seg.details ?? {}) as Record<string, unknown>;
+  const fd = typeof d.flight_date === 'string' ? d.flight_date : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fd)) return fd;
+  if (seg.start_at) return toLocalInput(seg.start_at).slice(0, 10);
+  return null;
+}
+
+/**
+ * May we refresh this flight's status as of `today` (Pacific date)? Only from the
+ * travel day onward — before then there's no live data, so a refresh just wastes
+ * the request. Non-flights / untracked flights can never refresh; an undated
+ * flight isn't blocked (we can't tell when it travels).
+ */
+export function canRefreshFlight(seg: TripSegment, today: ISODate): boolean {
+  if (seg.segment_type !== 'flight') return false;
+  const d = (seg.details ?? {}) as Record<string, unknown>;
+  if (typeof d.flight_iata !== 'string' || !d.flight_iata) return false;
+  const dep = flightDepDate(seg);
+  return dep === null || today >= dep;
+}
+
 // This is a light "helpful resource," not a live tracker: refresh sparsely and
 // cap the total per viewing session so a flight costs ~10 API calls at most.
 // Cadence widens/narrows by phase so the calls land where they matter — catching

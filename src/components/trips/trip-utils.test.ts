@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_FLIGHT_REFRESHES, isFlightTrackingActive, nextFlightRefreshMs, segmentOnDate } from './trip-utils';
+import {
+  MAX_FLIGHT_REFRESHES, canRefreshFlight, isFlightTrackingActive, nextFlightRefreshMs, segmentOnDate,
+} from './trip-utils';
 import type { TripSegment } from '@/lib/types';
 
 // Minimal segment — only start_at/end_at matter to segmentOnDate.
@@ -108,5 +110,35 @@ describe('nextFlightRefreshMs', () => {
 
   it('the hard cap bounds a viewing session to ~10 calls', () => {
     expect(MAX_FLIGHT_REFRESHES).toBe(10);
+  });
+});
+
+describe('canRefreshFlight', () => {
+  it('blocks refresh before the travel day, allows it from then on', () => {
+    const f = trackable(); // departs 2026-06-25 (Pacific)
+    expect(canRefreshFlight(f, '2026-06-24')).toBe(false);
+    expect(canRefreshFlight(f, '2026-06-25')).toBe(true);
+    expect(canRefreshFlight(f, '2026-06-26')).toBe(true);
+  });
+
+  it('uses the stored flight_date when present', () => {
+    const f = {
+      id: 's',
+      segment_type: 'flight',
+      start_at: '2026-07-01T00:00:00.000Z', // deliberately different from flight_date
+      details: { flight_iata: 'AS1366', flight_date: '2026-06-25' },
+    } as unknown as TripSegment;
+    expect(canRefreshFlight(f, '2026-06-24')).toBe(false);
+    expect(canRefreshFlight(f, '2026-06-25')).toBe(true);
+  });
+
+  it('never allows refresh for non-flights or untracked flights', () => {
+    expect(canRefreshFlight({ ...trackable(), segment_type: 'lodging' } as TripSegment, '2026-06-25')).toBe(false);
+    expect(canRefreshFlight(seg('2026-06-25T21:18:00.000Z'), '2026-06-25')).toBe(false); // no flight_iata
+  });
+
+  it('does not block an undated trackable flight (cannot tell when it travels)', () => {
+    const f = { id: 's', segment_type: 'flight', start_at: null, details: { flight_iata: 'AS1366' } } as unknown as TripSegment;
+    expect(canRefreshFlight(f, '2026-06-25')).toBe(true);
   });
 });

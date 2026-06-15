@@ -10,7 +10,8 @@ import {
   exceptionTypeLabel, formatClock, formatFullDate, manualCategoryLabel,
   schoolCategoryLabel, type ManualEventRow, type RequestLayerRow, type SchoolDateRow, type TripWithSegments,
 } from './calendar-utils';
-import { segmentDisplay, segmentOnDate } from '@/components/trips/trip-utils';
+import { canRefreshFlight, segmentDisplay, segmentOnDate } from '@/components/trips/trip-utils';
+import { todayISO } from '@/lib/dates';
 import { refreshFlightStatus } from '@/components/trips/flight-lookup';
 import { useFlightTracking } from '@/components/trips/use-flight-tracking';
 import { deleteEvent, deleteSeries } from './event-actions';
@@ -297,6 +298,7 @@ function SegmentRow({ seg, tripId }: { seg: TripSegment; tripId: string }) {
   const v = segmentDisplay(seg);
   const details = (seg.details ?? {}) as Record<string, unknown>;
   const trackable = v.isFlight && typeof details.flight_iata === 'string' && details.flight_iata !== '';
+  const canRefresh = trackable && canRefreshFlight(seg, todayISO());
   const live = useFlightTracking(seg, tripId);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -344,25 +346,28 @@ function SegmentRow({ seg, tripId }: { seg: TripSegment; tripId: string }) {
         {v.confirmation && <p className="text-xs text-muted-foreground">Confirmation: {v.confirmation}</p>}
         {v.extra && <p className="text-xs text-muted-foreground">{v.extra}</p>}
         {v.statusUpdated && <p className="text-[11px] text-muted-foreground/70">Updated {v.statusUpdated}</p>}
-        {trackable && (
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-            {live && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
-                Auto-updating
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={pending}
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
-            >
-              <RefreshCw className={cn('h-3 w-3', pending && 'animate-spin')} />
-              {pending ? 'Refreshing…' : live ? 'Refresh now' : 'Refresh flight status'}
-            </button>
-          </div>
-        )}
+        {trackable &&
+          (canRefresh ? (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {live && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
+                  Auto-updating
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={pending}
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+              >
+                <RefreshCw className={cn('h-3 w-3', pending && 'animate-spin')} />
+                {pending ? 'Refreshing…' : live ? 'Refresh now' : 'Refresh flight status'}
+              </button>
+            </div>
+          ) : (
+            <p className="mt-1 text-[11px] text-muted-foreground">Live status updates on the travel day.</p>
+          ))}
         {error && <p className="text-xs text-rose-700">{error}</p>}
       </div>
     </li>
