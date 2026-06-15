@@ -148,8 +148,10 @@ export async function refreshFlightStatus(input: { id: string; tripId: string })
     Object.entries(merged).filter(([, v]) => v !== undefined && v !== null && v !== ''),
   );
 
-  const { error } = await supabase.from('trip_segments').update({ details: clean }).eq('id', input.id);
-  if (error) return { error: error.message };
+  // Write the cached status via a definer RPC: any family member may refresh a
+  // flight, while structural segment edits stay restricted to the trip owner/admin.
+  const { error } = await supabase.rpc('refresh_segment_status', { p_id: input.id, p_details: clean });
+  if (error) return { error: 'Could not save the updated flight status.' };
   revalidatePath(`/trips/${input.tripId}`);
   revalidatePath('/calendar');
   return { ok: true };
