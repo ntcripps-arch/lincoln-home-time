@@ -9,6 +9,7 @@ import type { SegmentType, TripSegment } from '@/lib/types';
 import { addSegment, deleteSegment, updateSegment, type TripResult } from './actions';
 import { lookupFlight, refreshFlightStatus } from './flight-lookup';
 import { SEGMENT_TYPES, segmentDisplay, segmentTypeLabel } from './trip-utils';
+import { useFlightTracking } from './use-flight-tracking';
 
 const SEGMENT_ICON: Record<SegmentType, typeof Plane> = {
   flight: Plane,
@@ -176,6 +177,7 @@ function SegmentCard({ tripId, seg }: { tripId: string; seg: TripSegment }) {
   const v = segmentDisplay(seg);
   const details = (seg.details ?? {}) as Record<string, unknown>;
   const trackable = v.isFlight && typeof details.flight_iata === 'string' && details.flight_iata !== '';
+  const live = useFlightTracking(seg, tripId);
 
   function run(fn: () => Promise<TripResult | { ok: true } | { error: string }>) {
     setError(null);
@@ -235,11 +237,18 @@ function SegmentCard({ tripId, seg }: { tripId: string; seg: TripSegment }) {
         </div>
       </div>
 
+      {trackable && live && (
+        <p className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
+          Auto-updating
+        </p>
+      )}
+
       <div className="mt-3 flex flex-wrap gap-2">
         {trackable && (
           <button type="button" disabled={pending} onClick={() => run(() => refreshFlightStatus({ id: seg.id, tripId }))} className={btnGhost}>
             <RefreshCw className="h-4 w-4" />
-            Refresh status
+            {live ? 'Refresh now' : 'Refresh status'}
           </button>
         )}
         <button type="button" onClick={() => setEditing(true)} className={btnGhost}>

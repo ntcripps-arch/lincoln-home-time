@@ -12,6 +12,7 @@ import {
 } from './calendar-utils';
 import { segmentDisplay, segmentOnDate } from '@/components/trips/trip-utils';
 import { refreshFlightStatus } from '@/components/trips/flight-lookup';
+import { useFlightTracking } from '@/components/trips/use-flight-tracking';
 import { deleteEvent, deleteSeries } from './event-actions';
 
 const directionsUrl = (loc: string) =>
@@ -296,6 +297,7 @@ function SegmentRow({ seg, tripId }: { seg: TripSegment; tripId: string }) {
   const v = segmentDisplay(seg);
   const details = (seg.details ?? {}) as Record<string, unknown>;
   const trackable = v.isFlight && typeof details.flight_iata === 'string' && details.flight_iata !== '';
+  const live = useFlightTracking(seg, tripId);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -343,15 +345,23 @@ function SegmentRow({ seg, tripId }: { seg: TripSegment; tripId: string }) {
         {v.extra && <p className="text-xs text-muted-foreground">{v.extra}</p>}
         {v.statusUpdated && <p className="text-[11px] text-muted-foreground/70">Updated {v.statusUpdated}</p>}
         {trackable && (
-          <button
-            type="button"
-            onClick={refresh}
-            disabled={pending}
-            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
-          >
-            <RefreshCw className={cn('h-3 w-3', pending && 'animate-spin')} />
-            {pending ? 'Refreshing…' : 'Refresh flight status'}
-          </button>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {live && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
+                Auto-updating
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={pending}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+            >
+              <RefreshCw className={cn('h-3 w-3', pending && 'animate-spin')} />
+              {pending ? 'Refreshing…' : live ? 'Refresh now' : 'Refresh flight status'}
+            </button>
+          </div>
         )}
         {error && <p className="text-xs text-rose-700">{error}</p>}
       </div>

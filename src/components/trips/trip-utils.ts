@@ -15,6 +15,47 @@ export function segmentOnDate(seg: TripSegment, date: ISODate): boolean {
   return date >= start && date <= end;
 }
 
+// Live-tracking window: start polling shortly before scheduled departure and
+// stop a couple hours after scheduled arrival — or as soon as the flight is in
+// a terminal state. Keeps auto-refresh off for past/far-future flights.
+const TRACK_TERMINAL = new Set(['landed', 'cancelled', 'incident', 'diverted']);
+const TRACK_PRE_MS = 15 * 60_000;
+const TRACK_POST_MS = 2 * 60 * 60_000;
+const TRACK_FALLBACK_DURATION_MS = 3 * 60 * 60_000; // when arrival time is unknown
+
+/** Should this flight be auto-refreshed right now (nowMs)? Pure; drives the timer. */
+export function isFlightTrackingActive(seg: TripSegment, nowMs: number): boolean {
+  if (seg.segment_type !== 'flight' || !seg.start_at) return false;
+  const d = (seg.details ?? {}) as Record<string, unknown>;
+  const iata = typeof d.flight_iata === 'string' ? d.flight_iata : '';
+  if (!iata) return false; // nothing to query
+  const status = typeof d.status === 'string' ? d.status : '';
+  if (TRACK_TERMINAL.has(status)) return false; // already done
+  const depMs = Date.parse(seg.start_at);
+  if (Number.isNaN(depMs)) return false;
+  const arrMs = seg.end_at ? Date.parse(seg.end_at) : depMs + TRACK_FALLBACK_DURATION_MS;
+  return nowMs >= depMs - TRACK_PRE_MS && nowMs <= arrMs + TRACK_POST_MS;
+}
+
+// This is a light "helpful resource," not a live tracker: refresh sparsely and
+// cap the total per viewing session so a flight costs ~10 API calls at most.
+// Cadence widens/narrows by phase so the calls land where they matter — catching
+// the takeoff and the landing — rather than burning the budget mid-cruise.
+export const MAX_FLIGHT_REFRESHES = 10;
+const REFRESH_PRE_MS = 20 * 60_000; // before departure (catch a delayed takeoff)
+const REFRESH_AIR_MS = 30 * 60_000; // airborne (update the estimated landing)
+const REFRESH_ARR_MS = 15 * 60_000; // past scheduled arrival (catch the landing)
+
+/** Delay until the next auto-refresh for a flight, by phase. */
+export function nextFlightRefreshMs(seg: TripSegment, nowMs: number): number {
+  const depMs = seg.start_at ? Date.parse(seg.start_at) : NaN;
+  if (Number.isNaN(depMs)) return REFRESH_AIR_MS;
+  const arrMs = seg.end_at ? Date.parse(seg.end_at) : depMs + TRACK_FALLBACK_DURATION_MS;
+  if (nowMs < depMs) return REFRESH_PRE_MS;
+  if (nowMs < arrMs) return REFRESH_AIR_MS;
+  return REFRESH_ARR_MS;
+}
+
 // segment_type enum, verbatim from 0002_collaboration.sql.
 export const SEGMENT_TYPES: { value: SegmentType; label: string }[] = [
   { value: 'flight', label: 'Flight' },
