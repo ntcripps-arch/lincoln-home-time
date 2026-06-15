@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { familyContext } from '@/lib/supabase/auth';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RequestType } from '@/lib/types';
 import { formatDateRange, requestTypeLabel } from './request-utils';
@@ -26,18 +27,8 @@ export async function submitRequest(input: {
   note: string;
 }): Promise<ActionResult> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'You are signed out.' };
-
-  const { data: membership } = await supabase
-    .from('family_members')
-    .select('family_id, household_id')
-    .eq('profile_id', user.id)
-    .limit(1)
-    .maybeSingle();
-  if (!membership) return { error: 'You are not part of a family.' };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return { error: ctx.error };
 
   const start = input.startDate;
   const end = input.endDate && input.endDate >= start ? input.endDate : start;
@@ -48,10 +39,10 @@ export async function submitRequest(input: {
   const { data, error } = await supabase
     .from('time_requests')
     .insert({
-      family_id: membership.family_id,
-      requester_id: user.id,
+      family_id: ctx.familyId,
+      requester_id: ctx.user.id,
       request_type: input.requestType,
-      requested_household_id: membership.household_id,
+      requested_household_id: ctx.householdId,
       start_date: start,
       end_date: end,
       title,

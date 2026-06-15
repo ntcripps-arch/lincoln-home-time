@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { familyContext } from '@/lib/supabase/auth';
 import { todayISO } from '@/lib/dates';
 import {
   FIXED_HOLIDAY_LABELS,
@@ -30,19 +31,10 @@ function horizonYears(): number[] {
 type AdminCtx = { ok: false; error: string } | { ok: true; user: User; familyId: string };
 
 async function adminContext(supabase: SupabaseClient): Promise<AdminCtx> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: 'You are signed out.' };
-  const { data: me } = await supabase
-    .from('family_members')
-    .select('family_id, role')
-    .eq('profile_id', user.id)
-    .limit(1)
-    .maybeSingle();
-  if (!me) return { ok: false, error: 'You are not part of a family.' };
-  if (me.role !== 'admin') return { ok: false, error: 'Only a family admin can manage the parenting plan.' };
-  return { ok: true, user, familyId: me.family_id as string };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return ctx;
+  if (ctx.role !== 'admin') return { ok: false, error: 'Only a family admin can manage the parenting plan.' };
+  return { ok: true, user: ctx.user, familyId: ctx.familyId };
 }
 
 interface Household {

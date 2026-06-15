@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { familyContext } from '@/lib/supabase/auth';
 import { occurrenceDates } from './calendar-utils';
 
 export type EventResult = { ok: true } | { error: string };
@@ -34,23 +35,13 @@ function normalize(input: EventInput) {
 // Any family member can add an event (RLS: created_by = auth.uid()).
 export async function createEvent(input: EventInput): Promise<EventResult> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'You are signed out.' };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return { error: ctx.error };
   if (!input.title.trim()) return { error: 'Title is required.' };
-
-  const { data: me } = await supabase
-    .from('family_members')
-    .select('family_id')
-    .eq('profile_id', user.id)
-    .limit(1)
-    .maybeSingle();
-  if (!me) return { error: 'You are not part of a family.' };
 
   const { error } = await supabase
     .from('manual_events')
-    .insert({ family_id: me.family_id, created_by: user.id, ...normalize(input) });
+    .insert({ family_id: ctx.familyId, created_by: ctx.user.id, ...normalize(input) });
   if (error) return { error: error.message };
   revalidatePath('/calendar');
   return { ok: true };
@@ -137,30 +128,25 @@ function validateRecur(input: RecurInput): string | null {
 
 export async function createRecurringEvent(input: RecurInput): Promise<EventResult> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'You are signed out.' };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return { error: ctx.error };
   const v = validateRecur(input);
   if (v) return { error: v };
-
-  const { data: me } = await supabase.from('family_members').select('family_id').eq('profile_id', user.id).limit(1).maybeSingle();
-  if (!me) return { error: 'You are not part of a family.' };
-  const fid = me.family_id as string;
+  const fid = ctx.familyId;
 
   const dates = occurrenceDates(input.weekdays, input.startDate, input.endDate);
   if (!dates.length) return { error: 'That range has no matching days.' };
 
   const { data: series, error: sErr } = await supabase
     .from('manual_event_series')
-    .insert({ ...seriesFields(input, fid), created_by: user.id })
+    .insert({ ...seriesFields(input, fid), created_by: ctx.user.id })
     .select('id')
     .single();
   if (sErr) return { error: sErr.message };
 
   const { error: oErr } = await supabase
     .from('manual_events')
-    .insert(occurrenceRows(input, fid, user.id, series.id as string, dates));
+    .insert(occurrenceRows(input, fid, ctx.user.id, series.id as string, dates));
   if (oErr) return { error: oErr.message };
 
   revalidatePath('/calendar');
@@ -169,16 +155,11 @@ export async function createRecurringEvent(input: RecurInput): Promise<EventResu
 
 export async function updateSeries(input: RecurInput & { seriesId: string }): Promise<EventResult> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'You are signed out.' };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return { error: ctx.error };
   const v = validateRecur(input);
   if (v) return { error: v };
-
-  const { data: me } = await supabase.from('family_members').select('family_id').eq('profile_id', user.id).limit(1).maybeSingle();
-  if (!me) return { error: 'You are not part of a family.' };
-  const fid = me.family_id as string;
+  const fid = ctx.familyId;
 
   const { data: updatedSeries, error: sErr } = await supabase
     .from('manual_event_series')
@@ -203,7 +184,7 @@ export async function updateSeries(input: RecurInput & { seriesId: string }): Pr
   if (dates.length) {
     const { error: oErr } = await supabase
       .from('manual_events')
-      .insert(occurrenceRows(input, fid, user.id, input.seriesId, dates));
+      .insert(occurrenceRows(input, fid, ctx.user.id, input.seriesId, dates));
     if (oErr) return { error: oErr.message };
   }
 

@@ -4,23 +4,15 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { familyContext } from '@/lib/supabase/auth';
 import { FAMILY_TZ, fromLocalInput, fromZonedInput } from '@/lib/dates';
 import type { SegmentType } from '@/lib/types';
 
 export type TripResult = { ok: true } | { error: string };
 
 async function familyId(supabase: SupabaseClient): Promise<string | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await supabase
-    .from('family_members')
-    .select('family_id')
-    .eq('profile_id', user.id)
-    .limit(1)
-    .maybeSingle();
-  return (data?.family_id as string) ?? null;
+  const ctx = await familyContext(supabase);
+  return ctx.ok ? ctx.familyId : null;
 }
 
 // Wired but non-blocking — RESEND_* on test values.

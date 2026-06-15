@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { familyContext } from '@/lib/supabase/auth';
 import type { FamilyRole } from '@/lib/types';
 
 export type InviteResult = { ok: true; token?: string } | { error: string };
@@ -23,19 +24,9 @@ export async function createInvitation(input: {
   householdId: string;
 }): Promise<InviteResult> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'You are signed out.' };
-
-  const { data: me } = await supabase
-    .from('family_members')
-    .select('family_id, role')
-    .eq('profile_id', user.id)
-    .limit(1)
-    .maybeSingle();
-  if (!me) return { error: 'You are not part of a family.' };
-  if (me.role !== 'admin') return { error: 'Only admins can send invitations.' };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return { error: ctx.error };
+  if (ctx.role !== 'admin') return { error: 'Only admins can send invitations.' };
 
   const email = input.email.trim().toLowerCase();
   if (!email) return { error: 'Email is required.' };
@@ -43,11 +34,11 @@ export async function createInvitation(input: {
   const { data, error } = await supabase
     .from('invitations')
     .insert({
-      family_id: me.family_id,
+      family_id: ctx.familyId,
       email,
       role: input.role,
       household_id: input.householdId,
-      invited_by: user.id,
+      invited_by: ctx.user.id,
     })
     .select('id, token')
     .single();

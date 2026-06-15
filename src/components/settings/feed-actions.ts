@@ -2,37 +2,23 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { familyContext } from '@/lib/supabase/auth';
 
 export type FeedResult = { ok: true; token: string } | { error: string };
-
-async function familyId(supabase: ReturnType<typeof createClient>, userId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('family_members')
-    .select('family_id')
-    .eq('profile_id', userId)
-    .limit(1)
-    .maybeSingle();
-  return (data?.family_id as string) ?? null;
-}
 
 // Mint (or return the existing) per-person feed token. Idempotent thanks to the
 // unique(family_id, profile_id) constraint.
 export async function enableCalendarFeed(): Promise<FeedResult> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'You are signed out.' };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return { error: ctx.error };
 
-  const existing = await supabase.from('calendar_feeds').select('token').eq('profile_id', user.id).maybeSingle();
+  const existing = await supabase.from('calendar_feeds').select('token').eq('profile_id', ctx.user.id).maybeSingle();
   if (existing.data?.token) return { ok: true, token: existing.data.token as string };
-
-  const fid = await familyId(supabase, user.id);
-  if (!fid) return { error: 'You are not part of a family.' };
 
   const { data, error } = await supabase
     .from('calendar_feeds')
-    .insert({ family_id: fid, profile_id: user.id })
+    .insert({ family_id: ctx.familyId, profile_id: ctx.user.id })
     .select('token')
     .single();
   if (error) return { error: error.message };
@@ -44,17 +30,13 @@ export async function enableCalendarFeed(): Promise<FeedResult> {
 // default token without needing a crypto import).
 export async function rotateCalendarFeed(): Promise<FeedResult> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'You are signed out.' };
-  const fid = await familyId(supabase, user.id);
-  if (!fid) return { error: 'You are not part of a family.' };
+  const ctx = await familyContext(supabase);
+  if (!ctx.ok) return { error: ctx.error };
 
-  await supabase.from('calendar_feeds').delete().eq('profile_id', user.id);
+  await supabase.from('calendar_feeds').delete().eq('profile_id', ctx.user.id);
   const { data, error } = await supabase
     .from('calendar_feeds')
-    .insert({ family_id: fid, profile_id: user.id })
+    .insert({ family_id: ctx.familyId, profile_id: ctx.user.id })
     .select('token')
     .single();
   if (error) return { error: error.message };

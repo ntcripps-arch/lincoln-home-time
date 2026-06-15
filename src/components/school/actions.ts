@@ -4,22 +4,14 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { familyContext } from '@/lib/supabase/auth';
 import type { SchoolCategory } from '@/lib/types';
 
 export type SchoolResult = { ok: true } | { error: string };
 
 async function familyId(supabase: SupabaseClient): Promise<string | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await supabase
-    .from('family_members')
-    .select('family_id')
-    .eq('profile_id', user.id)
-    .limit(1)
-    .maybeSingle();
-  return (data?.family_id as string) ?? null;
+  const ctx = await familyContext(supabase);
+  return ctx.ok ? ctx.familyId : null;
 }
 
 const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB (bucket cap is 25 MB; Claude allows 32 MB)
