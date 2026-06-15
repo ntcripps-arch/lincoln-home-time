@@ -157,7 +157,11 @@ function overrideLabel(rule: ScheduleRule): string | null {
  * `note`-type exceptions annotate without changing the household.
  */
 export function applyExceptions(days: DayAssignment[], exceptions: ExceptionRow[]): DayAssignment[] {
-  const sorted = [...exceptions].sort((a, b) => a.id.localeCompare(b.id));
+  // Apply oldest first so the most recently created exception wins where two
+  // overlap the same day; id is a stable tiebreak (ISO timestamps sort lexically).
+  const sorted = [...exceptions].sort(
+    (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id),
+  );
   return days.map((day) => {
     let next = day;
     for (const ex of sorted) {

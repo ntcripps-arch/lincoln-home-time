@@ -65,6 +65,26 @@ describe('applyExceptions', () => {
     expect(merged.find((d) => d.date === '2026-01-06')).toMatchObject({ householdId: DAD, source: 'exception' });
     expect(merged.find((d) => d.date === '2026-01-05')?.source).toBe('baseline');
   });
+
+  it('resolves overlapping exceptions by recency, not UUID order', () => {
+    const days = generateBaseline({
+      rules: [rule({ rule_type: 'alternating_weeks',
+        config: { kind: 'alternating_weeks', anchorDate: '2026-01-05', parentA: MOM, parentB: DAD } })],
+      households, rangeStart: '2026-01-06', rangeEnd: '2026-01-06',
+    });
+    // The newer exception (later created_at) assigns MOM but has an id that sorts
+    // FIRST — so the old id-only sort would have made it LOSE; only created_at
+    // ordering yields the correct (recency) winner.
+    const older: ExceptionRow = { id: 'zzz', exception_type: 'swap', start_date: '2026-01-06',
+      end_date: '2026-01-06', household_id: DAD, pickup_time: null, dropoff_time: null,
+      note: null, created_by: 'u1', created_at: '2026-01-01T00:00:00Z' };
+    const newer: ExceptionRow = { id: 'aaa', exception_type: 'swap', start_date: '2026-01-06',
+      end_date: '2026-01-06', household_id: MOM, pickup_time: null, dropoff_time: null,
+      note: null, created_by: 'u1', created_at: '2026-02-01T00:00:00Z' };
+    // Feed them in id order to prove the sort, not insertion order, decides it.
+    const merged = applyExceptions(days, [newer, older]);
+    expect(merged[0].householdId).toBe(MOM);
+  });
 });
 
 // ---- The REAL schedule, verified against the app's actual overnights --------

@@ -146,6 +146,8 @@ export interface ExceptionRow {
   dropoff_time: string | null;
   note: string | null;
   created_by: string | null;
+  // When two exceptions overlap the same day, the most recently created wins.
+  created_at?: string;
 }
 
 // -----------------------------------------------------------------------------

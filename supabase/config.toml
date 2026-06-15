@@ -28,3 +28,8 @@ enable_confirmations = false   # local convenience; enable in production
 
 [storage]
 enabled = true
+
+[functions.notify]
+# Reject calls without a valid Supabase JWT; the function additionally checks
+# the caller is a member/admin of the referenced family.
+verify_jwt = true

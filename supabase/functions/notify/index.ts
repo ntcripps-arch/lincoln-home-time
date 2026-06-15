@@ -26,10 +26,32 @@ const admin = createClient(
 );
 
 const cors = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': SITE_URL || '*',
   'Access-Control-Allow-Headers': 'authorization, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+// The authenticated caller (from the forwarded Supabase session JWT), or null.
+async function callerId(req: Request): Promise<string | null> {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (!token) return null;
+  const { data, error } = await admin.auth.getUser(token);
+  return error || !data.user ? null : data.user.id;
+}
+
+// The caller's role in a family ('admin' | 'viewer'), or null if not a member.
+async function memberRole(familyId: string, userId: string): Promise<string | null> {
+  const { data } = await admin
+    .from('family_members')
+    .select('role')
+    .eq('family_id', familyId)
+    .eq('profile_id', userId)
+    .maybeSingle();
+  return (data?.role as string) ?? null;
+}
 
 function page(title: string, bodyHtml: string) {
   return `<div style="font-family:ui-sans-serif,system-ui,sans-serif;max-width:520px;margin:0 auto;color:#1f2a37">
@@ -63,14 +85,23 @@ const fmt = (d: string) =>
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   try {
+    // Authorize the caller: must be a signed-in user, and (per type below) a
+    // member/admin of the family that owns the referenced row. This function
+    // runs as service-role, so it must not act on a client-supplied id without
+    // confirming the caller is entitled to it.
+    const uid = await callerId(req);
+    if (!uid) return json({ error: 'unauthorized' }, 401);
+
     const { type, ...p } = await req.json();
 
     switch (type) {
       case 'invitation': {
         const { data: inv } = await admin.from('invitations')
-          .select('email, token, role, families(name), households(name)')
+          .select('family_id, email, token, role, families(name), households(name)')
           .eq('id', p.invitationId).single();
         if (!inv) throw new Error('invitation not found');
+        // Only an admin of the inviting family may trigger an invite email.
+        if (await memberRole(inv.family_id, uid) !== 'admin') return json({ error: 'forbidden' }, 403);
         const link = `${SITE_URL}/invite?token=${inv.token}`;
         await send(inv.email, `You're invited to ${(inv as any).families?.name ?? 'a family calendar'}`,
           page('You have been invited', `
@@ -86,6 +117,7 @@ Deno.serve(async (req) => {
           .select('family_id, title, request_type, start_date, end_date, note, profiles:requester_id(display_name)')
           .eq('id', p.requestId).single();
         if (!r) throw new Error('request not found');
+        if (!await memberRole(r.family_id, uid)) return json({ error: 'forbidden' }, 403);
         const to = await familyEmails(r.family_id, true);
         await send(to, `New time request: ${r.title}`,
           page('New extra-time request', `
@@ -99,9 +131,10 @@ Deno.serve(async (req) => {
 
       case 'request_decided': {
         const { data: r } = await admin.from('time_requests')
-          .select('title, status, decision_note, proposed_start_date, proposed_end_date, profiles:requester_id(email)')
+          .select('family_id, title, status, decision_note, proposed_start_date, proposed_end_date, profiles:requester_id(email)')
           .eq('id', p.requestId).single();
         if (!r) throw new Error('request not found');
+        if (!await memberRole(r.family_id, uid)) return json({ error: 'forbidden' }, 403);
         const email = (r as any).profiles?.email;
         const headline = r.status === 'approved' ? 'approved ✓'
           : r.status === 'denied' ? 'declined'
@@ -121,6 +154,7 @@ Deno.serve(async (req) => {
           .select('family_id, title, destination, start_date, end_date, households(name)')
           .eq('id', p.tripId).single();
         if (!t) throw new Error('trip not found');
+        if (!await memberRole(t.family_id, uid)) return json({ error: 'forbidden' }, 403);
         const to = await familyEmails(t.family_id);
         await send(to, `Trip added: ${t.title}`,
           page('A trip was added', `
@@ -133,15 +167,13 @@ Deno.serve(async (req) => {
       }
 
       default:
-        return new Response(JSON.stringify({ error: `unknown type ${type}` }), { status: 400, headers: cors });
+        return json({ error: `unknown type ${type}` }, 400);
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { ...cors, 'Content-Type': 'application/json' },
-    });
+    return json({ ok: true });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500, headers: { ...cors, 'Content-Type': 'application/json' },
-    });
+    // Log the detail server-side; don't leak internals (Resend bodies, etc.) to the caller.
+    console.error('notify error:', e);
+    return json({ error: 'notification failed' }, 500);
   }
 });
