@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, Inbox, Plane, Settings } from 'lucide-react';
+import { CalendarDays, GraduationCap, Inbox, Plane, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Thumb-reachable bottom tab bar. The /requests route is the time-request inbox
@@ -11,6 +11,7 @@ const TABS = [
   { href: '/calendar', label: 'Calendar', Icon: CalendarDays },
   { href: '/requests', label: 'Requests', Icon: Inbox },
   { href: '/trips', label: 'Trips', Icon: Plane },
+  { href: '/school-calendars', label: 'School', Icon: GraduationCap },
   { href: '/settings', label: 'Settings', Icon: Settings },
 ] as const;
 

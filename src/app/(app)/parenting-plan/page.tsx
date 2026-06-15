@@ -1,10 +1,17 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { formatInstant } from '@/lib/dates';
 import { PlanIntake } from '@/components/plan/plan-intake';
 import { PlanReview } from '@/components/plan/plan-review';
 import {
   isHolidayRule, isRotationRule, type PlanRuleRow, type PlanVersionRow,
 } from '@/components/plan/plan-utils';
+
+const VERSION_BADGE: Record<PlanVersionRow['status'], string> = {
+  active: 'bg-emerald-100 text-emerald-800',
+  draft: 'bg-amber-100 text-amber-800',
+  archived: 'bg-muted text-muted-foreground',
+};
 
 interface Household {
   id: string;
@@ -88,6 +95,39 @@ export default async function ParentingPlanPage() {
         <p className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
           No active plan yet.
         </p>
+      )}
+
+      {versions.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-base font-semibold text-foreground">Version history</h2>
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+            {versions.map((v) => (
+              <li key={v.id} className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 text-sm font-semibold text-foreground">v{v.version}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${VERSION_BADGE[v.status]}`}>
+                      {v.status}
+                    </span>
+                    {v.locked && (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        locked
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {formatInstant(v.created_at, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </div>
+                  {v.notes && <p className="mt-0.5 text-xs text-muted-foreground">{v.notes}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            Plans are versioned: importing a new plan creates the next version, and activating it supersedes
+            (archives) the current one. Past versions are kept for reference.
+          </p>
+        </section>
       )}
 
       {!draft && <PlanIntake familyId={familyId} />}
