@@ -80,6 +80,14 @@ export function occurrenceDates(weekdays: number[], start: ISODate, end: ISODate
   return eachDay(start, end).filter((d) => set.has(weekday(d))).slice(0, cap);
 }
 
+// Default span for a new recurring series (~3 months / a sports season). The
+// "repeat until" field must never default to the start date — that silently
+// collapses a "repeats weekly" event to a single occurrence.
+export const DEFAULT_RECUR_DAYS = 90;
+export function defaultRepeatUntil(start: ISODate): ISODate {
+  return addDays(start, DEFAULT_RECUR_DAYS);
+}
+
 // ---- Constants ---------------------------------------------------------------
 export const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',

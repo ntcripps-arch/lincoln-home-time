@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { aviationstackInstant } from './flight-times';
 
 // Aviationstack v1 real-time flights.
 //   • Free plan is HTTP-only (HTTPS needs a paid plan) and ~100 requests/month.
@@ -33,15 +34,25 @@ function normalize(f: Record<string, unknown>): FlightInfo {
   const arr = obj(f.arrival);
   const al = obj(f.airline);
   const fl = obj(f.flight);
+  const depTz = str(dep.timezone);
+  const arrTz = str(arr.timezone);
+  // Aviationstack reports airport-local times tagged "+00:00"; re-anchor each to
+  // its airport's zone so downstream storage/display gets a true instant.
   return {
     airline: str(al.name),
     flightNumber: str(fl.iata) || str(fl.number),
     flightIata: str(fl.iata),
     flightDate: str(f.flight_date),
-    depCity: str(dep.airport), depIata: str(dep.iata), depTz: str(dep.timezone),
-    depScheduled: strOrNull(dep.scheduled), depActual: strOrNull(dep.actual), depEstimated: strOrNull(dep.estimated), depGate: str(dep.gate),
-    arrCity: str(arr.airport), arrIata: str(arr.iata), arrTz: str(arr.timezone),
-    arrScheduled: strOrNull(arr.scheduled), arrActual: strOrNull(arr.actual), arrEstimated: strOrNull(arr.estimated), arrGate: str(arr.gate), arrBaggage: str(arr.baggage),
+    depCity: str(dep.airport), depIata: str(dep.iata), depTz,
+    depScheduled: aviationstackInstant(strOrNull(dep.scheduled), depTz),
+    depActual: aviationstackInstant(strOrNull(dep.actual), depTz),
+    depEstimated: aviationstackInstant(strOrNull(dep.estimated), depTz),
+    depGate: str(dep.gate),
+    arrCity: str(arr.airport), arrIata: str(arr.iata), arrTz,
+    arrScheduled: aviationstackInstant(strOrNull(arr.scheduled), arrTz),
+    arrActual: aviationstackInstant(strOrNull(arr.actual), arrTz),
+    arrEstimated: aviationstackInstant(strOrNull(arr.estimated), arrTz),
+    arrGate: str(arr.gate), arrBaggage: str(arr.baggage),
     status: str(f.flight_status),
   };
 }

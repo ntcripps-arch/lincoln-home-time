@@ -6,7 +6,10 @@ import { alertClass, fieldClass, primaryButtonClass } from '@/components/auth/fi
 import { cn } from '@/lib/utils';
 import { weekday } from '@/lib/rules-engine';
 import { LocationInput } from './location-input';
-import { MANUAL_CATEGORIES, WEEKDAY_INITIALS, type ManualEventRow, type SeriesRow } from './calendar-utils';
+import {
+  MANUAL_CATEGORIES, WEEKDAY_INITIALS, defaultRepeatUntil, occurrenceDates,
+  type ManualEventRow, type SeriesRow,
+} from './calendar-utils';
 import {
   createEvent, createRecurringEvent, updateEvent, updateSeries, type EventResult,
 } from './event-actions';
@@ -45,10 +48,20 @@ export function EventForm({
 
   function toggleRepeats(on: boolean) {
     setRepeats(on);
-    if (on && weekdays.length === 0) setWeekdays([weekday(day)]);
+    if (on) {
+      if (weekdays.length === 0) setWeekdays([weekday(day)]);
+      // Never leave "repeat until" on the start date — that yields a single
+      // occurrence and the event silently doesn't repeat.
+      if (repeatUntil <= day) setRepeatUntil(defaultRepeatUntil(day));
+    }
   }
   function toggleWeekday(d: number) {
     setWeekdays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
+  }
+  // Keep the end date valid as the start date moves (recurrence only).
+  function changeStartDate(v: string) {
+    setDay(v);
+    if (isRecurrence && repeatUntil <= v) setRepeatUntil(defaultRepeatUntil(v));
   }
 
   function submit(e: React.FormEvent) {
@@ -69,6 +82,10 @@ export function EventForm({
       }
       if (repeatUntil < day) {
         setError('The repeat-until date is before the start date.');
+        return;
+      }
+      if (occurrenceDates(weekdays, day, repeatUntil).length < 2) {
+        setError('This date range only covers one occurrence — extend "Repeat until" so the event actually repeats.');
         return;
       }
     }
@@ -119,7 +136,7 @@ export function EventForm({
 
         {!isRecurrence && (
           <Field label="Date">
-            <input type="date" value={day} onChange={(e) => setDay(e.target.value)} className={fieldClass} />
+            <input type="date" value={day} onChange={(e) => changeStartDate(e.target.value)} className={fieldClass} />
           </Field>
         )}
 
@@ -153,7 +170,7 @@ export function EventForm({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Start date">
-                <input type="date" value={day} onChange={(e) => setDay(e.target.value)} className={fieldClass} />
+                <input type="date" value={day} onChange={(e) => changeStartDate(e.target.value)} className={fieldClass} />
               </Field>
               <Field label="Repeat until">
                 <input type="date" min={day} value={repeatUntil} onChange={(e) => setRepeatUntil(e.target.value)} className={fieldClass} />
