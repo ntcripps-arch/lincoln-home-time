@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { Bed, Car, MapPin, Navigation, Pencil, Plane, Plus, Trash2 } from 'lucide-react';
+import { Bed, Car, MapPin, Navigation, Pencil, Plane, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { cn } from '@/lib/utils';
 import type { DayAssignment, ExceptionRow, Household, ISODate, SegmentType, TripSegment } from '@/lib/types';
@@ -10,7 +10,8 @@ import {
   exceptionTypeLabel, formatClock, formatFullDate, manualCategoryLabel,
   schoolCategoryLabel, type ManualEventRow, type RequestLayerRow, type SchoolDateRow, type TripWithSegments,
 } from './calendar-utils';
-import { segmentDisplay } from '@/components/trips/trip-utils';
+import { segmentDisplay, segmentOnDate } from '@/components/trips/trip-utils';
+import { refreshFlightStatus } from '@/components/trips/flight-lookup';
 import { deleteEvent, deleteSeries } from './event-actions';
 
 const directionsUrl = (loc: string) =>
@@ -131,28 +132,37 @@ export function DaySheet({
 
         {trips.length > 0 && (
           <Section title="Trips">
-            {trips.map((t) => (
-              <div key={t.id} className="rounded-lg border border-border bg-background p-3">
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
-                  <p className="text-sm font-semibold text-foreground">{t.title}</p>
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {[t.destination, t.traveling_household_id && `Traveling: ${householdName(t.traveling_household_id)}`]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-                {t.trip_segments.length > 0 && (
-                  <ul className="mt-2 space-y-2 border-t border-border pt-2">
-                    {[...t.trip_segments]
-                      .sort((a, b) => a.sort_order - b.sort_order)
-                      .map((seg) => (
-                        <SegmentRow key={seg.id} seg={seg} />
+            {trips.map((t) => {
+              // Only the segments that actually happen on the viewed day — so an
+              // outbound flight shows on its day, not the return flight days later.
+              const daySegments = t.trip_segments
+                .filter((seg) => segmentOnDate(seg, date))
+                .sort((a, b) => a.sort_order - b.sort_order);
+              return (
+                <div key={t.id} className="rounded-lg border border-border bg-background p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+                    <p className="text-sm font-semibold text-foreground">{t.title}</p>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {[t.destination, t.traveling_household_id && `Traveling: ${householdName(t.traveling_household_id)}`]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                  {daySegments.length > 0 ? (
+                    <ul className="mt-2 space-y-2 border-t border-border pt-2">
+                      {daySegments.map((seg) => (
+                        <SegmentRow key={seg.id} seg={seg} tripId={t.id} />
                       ))}
-                  </ul>
-                )}
-              </div>
-            ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
+                      No flights or check-ins on this day.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </Section>
         )}
       </div>
@@ -281,9 +291,22 @@ function Row({ dot, title, sub, note }: { dot: string; title: string; sub: strin
   );
 }
 
-function SegmentRow({ seg }: { seg: TripSegment }) {
+function SegmentRow({ seg, tripId }: { seg: TripSegment; tripId: string }) {
   const Icon = SEGMENT_ICON[seg.segment_type] ?? MapPin;
   const v = segmentDisplay(seg);
+  const details = (seg.details ?? {}) as Record<string, unknown>;
+  const trackable = v.isFlight && typeof details.flight_iata === 'string' && details.flight_iata !== '';
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function refresh() {
+    setError(null);
+    startTransition(async () => {
+      const res = await refreshFlightStatus({ id: seg.id, tripId });
+      if ('error' in res) setError(res.error);
+    });
+  }
+
   return (
     <li className="flex gap-2.5">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -319,6 +342,18 @@ function SegmentRow({ seg }: { seg: TripSegment }) {
         {v.confirmation && <p className="text-xs text-muted-foreground">Confirmation: {v.confirmation}</p>}
         {v.extra && <p className="text-xs text-muted-foreground">{v.extra}</p>}
         {v.statusUpdated && <p className="text-[11px] text-muted-foreground/70">Updated {v.statusUpdated}</p>}
+        {trackable && (
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={pending}
+            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+          >
+            <RefreshCw className={cn('h-3 w-3', pending && 'animate-spin')} />
+            {pending ? 'Refreshing…' : 'Refresh flight status'}
+          </button>
+        )}
+        {error && <p className="text-xs text-rose-700">{error}</p>}
       </div>
     </li>
   );

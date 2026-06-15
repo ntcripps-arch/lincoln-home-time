@@ -1,5 +1,19 @@
-import { formatDay, formatInstant, formatInZone, zoneAbbrev } from '@/lib/dates';
-import type { SegmentType, TripSegment } from '@/lib/types';
+import { formatDay, formatInstant, formatInZone, toLocalInput, zoneAbbrev } from '@/lib/dates';
+import type { ISODate, SegmentType, TripSegment } from '@/lib/types';
+
+/**
+ * Does a trip segment fall on the given calendar day (family/Pacific tz)?
+ * Used to show only the segments relevant to the day being viewed — e.g. an
+ * outbound flight on its departure day, not the return flight days later. A
+ * multi-day segment (lodging) matches every day it covers. Undated segments
+ * can't be placed, so they always show.
+ */
+export function segmentOnDate(seg: TripSegment, date: ISODate): boolean {
+  if (!seg.start_at) return true;
+  const start = toLocalInput(seg.start_at).slice(0, 10);
+  const end = seg.end_at ? toLocalInput(seg.end_at).slice(0, 10) : start;
+  return date >= start && date <= end;
+}
 
 // segment_type enum, verbatim from 0002_collaboration.sql.
 export const SEGMENT_TYPES: { value: SegmentType; label: string }[] = [
