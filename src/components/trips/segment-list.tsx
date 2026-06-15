@@ -278,7 +278,11 @@ function SegmentForm({
     setLookupMsg(null);
     setError(null);
     setLooking(true);
-    const res = await lookupFlight({ flightIata: s.flightIata });
+    const res = await lookupFlight({
+      airline: s.airline,
+      flightNumber: s.flightNumber,
+      flightDate: s.flightDate,
+    });
     setLooking(false);
     if ('error' in res) {
       setLookupMsg(res.error);
@@ -341,31 +345,31 @@ function SegmentForm({
         <>
           <div className="space-y-2 rounded-lg border border-dashed border-border bg-card p-3">
             <p className="text-sm font-medium text-foreground">Look up the flight</p>
-            <div className="flex gap-2">
-              <input
-                value={s.flightIata}
-                onChange={(e) => set('flightIata', e.target.value)}
-                className={fieldClass}
-                placeholder="Flight no. (e.g. BA49)"
-              />
-              <button type="button" onClick={doLookup} disabled={looking || !s.flightIata.trim()} className={btnGhost}>
-                <Search className="h-4 w-4" />
-                {looking ? '…' : 'Look up'}
-              </button>
+            <Field label="Flight date">
+              <input type="date" value={s.flightDate} onChange={(e) => set('flightDate', e.target.value)} className={fieldClass} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Airline">
+                <input value={s.airline} onChange={(e) => set('airline', e.target.value)} className={fieldClass} placeholder="AS (or Alaska)" />
+              </Field>
+              <Field label="Flight number">
+                <input value={s.flightNumber} onChange={(e) => set('flightNumber', e.target.value)} className={fieldClass} placeholder="1366" />
+              </Field>
             </div>
+            <button
+              type="button"
+              onClick={doLookup}
+              disabled={looking || !s.airline.trim() || !s.flightNumber.trim()}
+              className={btnGhost}
+            >
+              <Search className="h-4 w-4" />
+              {looking ? 'Looking up…' : 'Look up flight'}
+            </button>
             {lookupMsg && <p className="text-xs text-muted-foreground">{lookupMsg}</p>}
             <p className="text-[11px] text-muted-foreground">
-              Auto-fills airline, airports, times, and time zones. Works best on the travel day; otherwise fill in below.
+              Set the flight date so we fetch the right day. Auto-fills airports, times, and time zones. Works best on or near the
+              travel day; otherwise fill in the details below.
             </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Airline">
-              <input value={s.airline} onChange={(e) => set('airline', e.target.value)} className={fieldClass} placeholder="British Airways" />
-            </Field>
-            <Field label="Flight #">
-              <input value={s.flightNumber} onChange={(e) => set('flightNumber', e.target.value)} className={fieldClass} placeholder="BA 49" />
-            </Field>
           </div>
 
           <Field label="Departure city / airport">

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { aviationstackInstant } from './flight-times';
+import { aviationstackInstant, flightQueryParams } from './flight-times';
 
 // Aviationstack v1 real-time flights.
 //   • Free plan is HTTP-only (HTTPS needs a paid plan) and ~100 requests/month.
@@ -40,7 +40,7 @@ function normalize(f: Record<string, unknown>): FlightInfo {
   // its airport's zone so downstream storage/display gets a true instant.
   return {
     airline: str(al.name),
-    flightNumber: str(fl.iata) || str(fl.number),
+    flightNumber: str(fl.number) || str(fl.iata),
     flightIata: str(fl.iata),
     flightDate: str(f.flight_date),
     depCity: str(dep.airport), depIata: str(dep.iata), depTz,
@@ -66,14 +66,19 @@ function friendlyError(err: unknown): string {
   return 'The flight service returned an error — enter the details manually.';
 }
 
-export async function lookupFlight(input: { flightIata: string; flightDate?: string }): Promise<LookupResponse> {
+export async function lookupFlight(input: {
+  flightIata?: string;
+  airline?: string;
+  flightNumber?: string;
+  flightDate?: string;
+}): Promise<LookupResponse> {
   const key = process.env.AVIATIONSTACK_API_KEY;
   if (!key) return { error: 'Flight lookup isn’t configured (set AVIATIONSTACK_API_KEY).' };
-  const iata = input.flightIata.replace(/\s+/g, '').toUpperCase();
-  if (!iata) return { error: 'Enter a flight number like BA49 or UA1234.' };
 
-  const params = new URLSearchParams({ access_key: key, flight_iata: iata, limit: '1' });
-  if (input.flightDate) params.set('flight_date', input.flightDate);
+  const query = flightQueryParams(input);
+  if (!query) return { error: 'Enter the airline and flight number (e.g. AS 1366).' };
+
+  const params = new URLSearchParams({ access_key: key, limit: '1', ...query });
 
   try {
     const res = await fetch(`${BASE}?${params.toString()}`, { cache: 'no-store' });

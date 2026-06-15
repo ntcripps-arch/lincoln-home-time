@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aviationstackInstant } from './flight-times';
+import { aviationstackInstant, flightQueryParams } from './flight-times';
 import { toZonedInput } from '@/lib/dates';
 
 describe('aviationstackInstant', () => {
@@ -31,5 +31,40 @@ describe('aviationstackInstant', () => {
   it('passes through nulls and unparseable values', () => {
     expect(aviationstackInstant(null, 'America/Los_Angeles')).toBeNull();
     expect(aviationstackInstant('not-a-date', 'America/Los_Angeles')).toBe('not-a-date');
+  });
+});
+
+describe('flightQueryParams', () => {
+  it('always includes the flight date so the right day is fetched', () => {
+    expect(flightQueryParams({ airline: 'AS', flightNumber: '1366', flightDate: '2026-06-25' })).toEqual({
+      flight_date: '2026-06-25',
+      flight_iata: 'AS1366',
+    });
+  });
+
+  it('combines a short airline code + number into a flight_iata', () => {
+    expect(flightQueryParams({ airline: 'as', flightNumber: '1366' })).toEqual({ flight_iata: 'AS1366' });
+    // strips non-digits from the number and spaces/punctuation from the code
+    expect(flightQueryParams({ airline: 'B6', flightNumber: 'no. 49' })).toEqual({ flight_iata: 'B649' });
+  });
+
+  it('queries by airline name + number when the airline is a full name', () => {
+    expect(flightQueryParams({ airline: 'Alaska Airlines', flightNumber: '1366' })).toEqual({
+      airline_name: 'Alaska Airlines',
+      flight_number: '1366',
+    });
+  });
+
+  it('prefers an explicit IATA code (refresh path)', () => {
+    expect(flightQueryParams({ flightIata: 'as 1366', flightDate: '2026-06-25' })).toEqual({
+      flight_date: '2026-06-25',
+      flight_iata: 'AS1366',
+    });
+  });
+
+  it('returns null when nothing identifiable is given', () => {
+    expect(flightQueryParams({ flightDate: '2026-06-25' })).toBeNull();
+    expect(flightQueryParams({ airline: 'Alaska' })).toBeNull();
+    expect(flightQueryParams({ flightNumber: '1366' })).toBeNull();
   });
 });
