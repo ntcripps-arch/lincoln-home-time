@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { aviationstackInstant, flightQueryParams } from './flight-times';
+import { aviationstackInstant, flightQueryParams, friendlyFlightError, isRestriction } from './flight-times';
 
 // Aviationstack v1 real-time flights.
 //   • Free plan is HTTP-only (HTTPS needs a paid plan) and ~100 requests/month.
@@ -57,13 +57,36 @@ function normalize(f: Record<string, unknown>): FlightInfo {
   };
 }
 
-function friendlyError(err: unknown): string {
+function errorCode(err: unknown): string {
   const e = obj(err);
-  const code = `${str(e.code)}${str(e.type)}`;
-  if (code.includes('usage_limit') || code.includes('rate_limit')) return 'Monthly flight-lookup limit reached — enter the details manually.';
-  if (code.includes('https')) return 'The flight service rejected the request (HTTPS not allowed on the free plan).';
-  if (code.includes('access_key')) return 'The flight-lookup key is missing or invalid.';
-  return 'The flight service returned an error — enter the details manually.';
+  return `${str(e.code)} ${str(e.type)} ${str(e.info)}`.trim();
+}
+
+type QueryResult = { ok: true; flight: FlightInfo } | { error: string; restricted: boolean };
+
+async function runQuery(key: string, fields: Record<string, string>): Promise<QueryResult> {
+  const params = new URLSearchParams({ access_key: key, limit: '1', ...fields });
+  try {
+    const res = await fetch(`${BASE}?${params.toString()}`, { cache: 'no-store' });
+    const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!json) return { error: 'The flight service returned no data.', restricted: false };
+    if (json.error) {
+      const code = errorCode(json.error);
+      return { error: friendlyFlightError(code), restricted: isRestriction(code) };
+    }
+    const data = json.data;
+    const f = Array.isArray(data) && data[0] ? (data[0] as Record<string, unknown>) : null;
+    if (!f) {
+      return {
+        error:
+          'No live data for that flight yet — the free plan tracks flights around their travel day. Enter the details manually and refresh status on the day.',
+        restricted: false,
+      };
+    }
+    return { ok: true, flight: normalize(f) };
+  } catch {
+    return { error: 'Couldn’t reach the flight service. Try again.', restricted: false };
+  }
 }
 
 export async function lookupFlight(input: {
@@ -78,25 +101,15 @@ export async function lookupFlight(input: {
   const query = flightQueryParams(input);
   if (!query) return { error: 'Enter the airline and flight number (e.g. AS 1366).' };
 
-  const params = new URLSearchParams({ access_key: key, limit: '1', ...query });
-
-  try {
-    const res = await fetch(`${BASE}?${params.toString()}`, { cache: 'no-store' });
-    const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!json) return { error: 'The flight service returned no data.' };
-    if (json.error) return { error: friendlyError(json.error) };
-    const data = json.data;
-    const f = Array.isArray(data) && data[0] ? (data[0] as Record<string, unknown>) : null;
-    if (!f) {
-      return {
-        error:
-          'No live data for that flight yet — the free plan tracks flights around their travel day. Enter the details manually and refresh status on the day.',
-      };
-    }
-    return { ok: true, flight: normalize(f) };
-  } catch {
-    return { error: 'Couldn’t reach the flight service. Try again.' };
+  let r = await runQuery(key, query);
+  // Date filtering is a paid feature; if the plan rejects it, fall back to a
+  // real-time lookup (the pre-date behavior) so current flights still resolve.
+  if ('error' in r && r.restricted && query.flight_date) {
+    const realtime = { ...query };
+    delete realtime.flight_date;
+    r = await runQuery(key, realtime);
   }
+  return 'ok' in r ? { ok: true, flight: r.flight } : { error: r.error };
 }
 
 // Re-query a saved flight segment by its stored flight number + date and merge

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aviationstackInstant, flightQueryParams } from './flight-times';
+import { aviationstackInstant, flightQueryParams, friendlyFlightError, isRestriction } from './flight-times';
 import { toZonedInput } from '@/lib/dates';
 
 describe('aviationstackInstant', () => {
@@ -66,5 +66,36 @@ describe('flightQueryParams', () => {
     expect(flightQueryParams({ flightDate: '2026-06-25' })).toBeNull();
     expect(flightQueryParams({ airline: 'Alaska' })).toBeNull();
     expect(flightQueryParams({ flightNumber: '1366' })).toBeNull();
+  });
+});
+
+describe('isRestriction', () => {
+  it('flags date/historical/feature-access errors as retryable real-time', () => {
+    expect(isRestriction('function_access_restricted')).toBe(true);
+    expect(isRestriction('historical_data_restricted')).toBe(true);
+    expect(isRestriction('restricted')).toBe(true);
+  });
+
+  it('does not flag usage/key/https errors (a real-time retry would not help)', () => {
+    expect(isRestriction('usage_limit_reached')).toBe(false);
+    expect(isRestriction('rate_limit_reached')).toBe(false);
+    expect(isRestriction('invalid_access_key')).toBe(false);
+    expect(isRestriction('https_access_restricted')).toBe(false);
+  });
+});
+
+describe('friendlyFlightError', () => {
+  it('explains the paid-plan limit for date-restricted lookups', () => {
+    expect(friendlyFlightError('function_access_restricted')).toMatch(/paid Aviationstack plan/i);
+  });
+
+  it('maps the known error codes', () => {
+    expect(friendlyFlightError('usage_limit_reached')).toMatch(/limit reached/i);
+    expect(friendlyFlightError('invalid_access_key')).toMatch(/key is missing or invalid/i);
+    expect(friendlyFlightError('https_access_restricted')).toMatch(/HTTPS/);
+  });
+
+  it('surfaces the raw code for unknown errors so they are actionable', () => {
+    expect(friendlyFlightError('some_new_code')).toContain('some_new_code');
   });
 });

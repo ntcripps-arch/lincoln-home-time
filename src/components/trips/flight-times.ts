@@ -18,6 +18,23 @@ export function aviationstackInstant(raw: string | null, timeZone: string): stri
   return fromZonedInput(`${m[1]}T${m[2]}`, timeZone || FAMILY_TZ);
 }
 
+// True when the plan can't run a query as-is — e.g. date-filtered/historical
+// lookups, which aren't on Aviationstack's free tier. Such a query can be
+// retried real-time (without the date) instead of hard-failing.
+export function isRestriction(code: string): boolean {
+  return /function_access|historical|date|restrict/i.test(code) && !/access_key|https/i.test(code);
+}
+
+/** Map an Aviationstack error code/type string to a user-facing message. */
+export function friendlyFlightError(code: string): string {
+  const c = code.toLowerCase();
+  if (c.includes('usage_limit') || c.includes('rate_limit')) return 'Monthly flight-lookup limit reached — enter the details manually.';
+  if (c.includes('access_key')) return 'The flight-lookup key is missing or invalid.';
+  if (c.includes('https')) return 'The flight service rejected the request (HTTPS not allowed on the free plan).';
+  if (isRestriction(c)) return 'Looking up a flight by date needs a paid Aviationstack plan. On the free plan, look it up on or near the travel day, or enter the details manually.';
+  return `The flight service returned an error${code ? ` (${code})` : ''} — enter the details manually.`;
+}
+
 export interface FlightQuery {
   flightIata?: string;
   airline?: string;
