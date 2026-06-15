@@ -7,7 +7,7 @@ export default function UploadsPage() {
       <div>
         <h1 className="text-xl font-semibold text-foreground">New school calendar</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Paste a school calendar to review and approve its dates.
+          Upload a school-calendar PDF to review and approve its dates.
         </p>
       </div>
       <NewUploadForm />

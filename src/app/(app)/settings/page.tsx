@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { GraduationCap, UserPlus, Upload } from 'lucide-react';
+import { CalendarRange, GraduationCap, UserPlus, Upload } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import type { Household } from '@/lib/types';
@@ -131,6 +131,10 @@ export default async function SettingsPage() {
             Admin tools that don&apos;t have their own tab.
           </p>
           <div className="flex flex-col gap-2">
+            <Link href="/parenting-plan" className={linkClass}>
+              <CalendarRange className="h-4 w-4" />
+              Parenting plan
+            </Link>
             <Link href="/invite" className={linkClass}>
               <UserPlus className="h-4 w-4" />
               Invite a family member

@@ -5,9 +5,11 @@ import { createClient } from '@/lib/supabase/server';
 import type { SchoolCategory } from '@/lib/types';
 import { SCHOOL_CATEGORY_VALUES } from './school-utils';
 
-// claude-sonnet-4-6 supports temperature (sampling params are only removed on
-// Fable 5 / Opus 4.7+), so temperature: 0 is valid here.
-const EXTRACT_MODEL = 'claude-sonnet-4-6';
+// Vision extraction reads the calendar PDF directly (month grids + color legend),
+// which plain-text parsing can't do. Opus 4.8 has the strongest vision/OCR; this
+// is a rare admin action so cost is negligible. NOTE: sampling params (temperature)
+// are removed on Opus 4.8 — do not send them.
+const EXTRACT_MODEL = 'claude-opus-4-8';
 const ANTHROPIC_VERSION = '2023-06-01';
 
 export type ExtractResult = { ok: true; kept: number; dropped: number } | { error: string };
@@ -23,37 +25,57 @@ interface RawRow {
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function systemPrompt(schoolYear: string): string {
+  const [y1, y2] = schoolYear.split('-');
   return [
-    'You extract school-calendar dates from pasted text into structured JSON.',
-    'Return ONLY a JSON array — no prose, no explanation, no markdown code fences.',
-    'Each array item must be an object with exactly these keys:',
-    '  "date": "YYYY-MM-DD",',
-    '  "end_date": "YYYY-MM-DD" or null (use for multi-day breaks; null for single days),',
-    '  "category": one of holiday | no_school | early_release | break | teacher_work_day | first_day | last_day | event,',
-    '  "title": short string,',
-    '  "notes": string or null.',
+    'You read a school-year calendar PDF and extract its non-instructional days and notable events.',
+    'The PDF is month grids; holidays, breaks, no-school days, and early releases are marked with',
+    'colors, shading, or symbols explained in a LEGEND / KEY. Use the legend to classify each marked',
+    'day. Be exhaustive but precise.',
     '',
-    `The school year is ${schoolYear}. The source text usually omits years — infer them per date endpoint:`,
-    `months Aug–Dec belong to the first year (${schoolYear.split('-')[0]}), months Jan–Jul to the second year (${schoolYear.split('-')[1]}).`,
-    'So "Winter Break Dec 22 – Jan 2" becomes date 2025-12-22, end_date 2026-01-02 (for 2025-2026).',
+    'Rules:',
+    `- The school year is ${schoolYear}. Dates usually omit the year — infer it: months Aug–Dec belong`,
+    `  to ${y1}, months Jan–Jul to ${y2}. (So a winter break "Dec 21 – Jan 1" is ${y1}-12-21 → ${y2}-01-01.)`,
+    '- Merge a consecutive multi-day break into ONE entry: set "date" to the first day and "end_date"',
+    '  to the last day. Single days use end_date = null.',
+    '- Do NOT emit ordinary weekends (Sat/Sun) as no_school — only days the legend actually marks.',
+    '- Ignore decorative or empty cells. Do not invent dates.',
     '',
-    'Category guidance:',
-    '- "No School" / non-student day → no_school',
-    '- teacher in-service / professional development → teacher_work_day',
-    '- Winter Break / Spring Break / Mid-Winter Break → break (with end_date spanning the range)',
-    '- named holidays (Thanksgiving, MLK, Presidents Day, Labor Day, Memorial Day) → holiday',
-    '- Early Release / Half Day → early_release',
+    'Classify "category" using the legend, mapping to exactly one of the allowed values:',
+    '- no school / non-student day / student holiday → no_school',
+    '- teacher in-service / professional development / work day → teacher_work_day',
+    '- winter / spring / mid-winter / fall break (a multi-day range) → break',
+    '- named holidays (Thanksgiving, Labor Day, MLK, Presidents Day, Memorial Day, etc.) → holiday',
+    '- early release / half day / early dismissal → early_release',
     '- first day of school → first_day; last day of school → last_day',
-    '- anything else → event',
-    'Never emit a category outside the allowed list.',
+    '- anything else worth showing (e.g. conferences, grading days) → event',
+    '',
+    'Put a short human label in "title" (e.g. "Winter Break", "Thanksgiving", "Teacher Work Day").',
+    'Use "notes" only for a useful extra detail (else null). Return data via the required schema only.',
   ].join('\n');
 }
 
-function stripFences(text: string): string {
-  const t = text.trim();
-  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return (fenced ? fenced[1] : t).trim();
-}
+const RESULT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['dates'],
+  properties: {
+    dates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['date', 'end_date', 'category', 'title', 'notes'],
+        properties: {
+          date: { type: 'string', description: 'YYYY-MM-DD' },
+          end_date: { type: ['string', 'null'], description: 'YYYY-MM-DD for multi-day ranges, else null' },
+          category: { type: 'string', enum: SCHOOL_CATEGORY_VALUES },
+          title: { type: 'string' },
+          notes: { type: ['string', 'null'] },
+        },
+      },
+    },
+  },
+} as const;
 
 export async function extractDates(input: { uploadId: string }): Promise<ExtractResult> {
   try {
@@ -65,11 +87,11 @@ export async function extractDates(input: { uploadId: string }): Promise<Extract
 
     const { data: upload } = await supabase
       .from('school_calendar_uploads')
-      .select('source_text, school_year, family_id')
+      .select('file_path, school_year, family_id')
       .eq('id', input.uploadId)
       .maybeSingle();
     if (!upload) return { error: 'Upload not found.' };
-    if (!upload.source_text?.trim()) return { error: 'This upload has no pasted text to extract from.' };
+    if (!upload.file_path) return { error: 'This upload has no PDF to extract from.' };
 
     // Admin of this upload's family only.
     const { data: membership } = await supabase
@@ -83,6 +105,13 @@ export async function extractDates(input: { uploadId: string }): Promise<Extract
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return { error: 'Extraction is not configured (missing ANTHROPIC_API_KEY).' };
 
+    // Pull the PDF from private storage and base64-encode it for the document block.
+    const { data: blob, error: dlErr } = await supabase.storage
+      .from('school-calendars')
+      .download(upload.file_path as string);
+    if (dlErr || !blob) return { error: 'Could not read the uploaded PDF. Try re-uploading.' };
+    const base64 = Buffer.from(await blob.arrayBuffer()).toString('base64');
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -92,10 +121,18 @@ export async function extractDates(input: { uploadId: string }): Promise<Extract
       },
       body: JSON.stringify({
         model: EXTRACT_MODEL,
-        max_tokens: 4000,
-        temperature: 0,
+        max_tokens: 8000,
         system: systemPrompt(upload.school_year as string),
-        messages: [{ role: 'user', content: upload.source_text as string }],
+        output_config: { format: { type: 'json_schema', schema: RESULT_SCHEMA } },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+              { type: 'text', text: 'Extract every marked day and notable event from this school-calendar PDF.' },
+            ],
+          },
+        ],
       }),
     });
     if (!res.ok) return { error: `Extraction failed (Claude API ${res.status}).` };
@@ -108,11 +145,12 @@ export async function extractDates(input: { uploadId: string }): Promise<Extract
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(stripFences(text));
+      parsed = JSON.parse(text);
     } catch {
       return { error: 'Could not parse the extraction result. Try again or add dates manually.' };
     }
-    if (!Array.isArray(parsed)) return { error: 'Extraction did not return a list. Try again.' };
+    const rows = (parsed as { dates?: unknown })?.dates;
+    if (!Array.isArray(rows)) return { error: 'Extraction did not return any dates. Try again.' };
 
     const valid: {
       date: string;
@@ -123,7 +161,7 @@ export async function extractDates(input: { uploadId: string }): Promise<Extract
     }[] = [];
     let dropped = 0;
 
-    for (const r of parsed as RawRow[]) {
+    for (const r of rows as RawRow[]) {
       const date = typeof r.date === 'string' ? r.date : '';
       const endRaw = r.end_date == null ? null : typeof r.end_date === 'string' ? r.end_date : '';
       const category = r.category as SchoolCategory;

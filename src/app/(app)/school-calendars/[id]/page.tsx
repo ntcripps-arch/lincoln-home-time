@@ -26,7 +26,7 @@ export default async function SchoolCalendarReviewPage({ params }: { params: { i
 
   const { data: upload } = await supabase
     .from('school_calendar_uploads')
-    .select('id, school_year, status, source_text')
+    .select('id, school_year, status, file_path')
     .eq('id', params.id)
     .eq('family_id', familyId)
     .maybeSingle();
@@ -51,6 +51,13 @@ export default async function SchoolCalendarReviewPage({ params }: { params: { i
 
   const badge = uploadStatusBadge(upload.status as SchoolUploadStatus);
 
+  const filePath = upload.file_path as string | null;
+  let pdfUrl: string | null = null;
+  if (filePath) {
+    const { data: signed } = await supabase.storage.from('school-calendars').createSignedUrl(filePath, 3600);
+    pdfUrl = signed?.signedUrl ?? null;
+  }
+
   return (
     <div className="space-y-4">
       <Link
@@ -66,9 +73,19 @@ export default async function SchoolCalendarReviewPage({ params }: { params: { i
           {badge.label}
         </span>
       </div>
+      {pdfUrl && (
+        <a
+          href={pdfUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          View uploaded PDF
+        </a>
+      )}
       <ReviewTable
         uploadId={upload.id as string}
-        hasSourceText={Boolean((upload.source_text as string | null)?.trim())}
+        hasFile={Boolean(filePath)}
         rows={(dates ?? []) as SchoolDateEditRow[]}
       />
     </div>

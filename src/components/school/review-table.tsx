@@ -30,11 +30,11 @@ interface FieldState {
 
 export function ReviewTable({
   uploadId,
-  hasSourceText,
+  hasFile,
   rows,
 }: {
   uploadId: string;
-  hasSourceText: boolean;
+  hasFile: boolean;
   rows: SchoolDateEditRow[];
 }) {
   const [pending, startTransition] = useTransition();
@@ -72,10 +72,10 @@ export function ReviewTable({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        {hasSourceText && (
+        {hasFile && (
           <button type="button" disabled={pending} onClick={onExtract} className={btnPrimary}>
             <Sparkles className="h-4 w-4" />
-            {pending ? 'Working…' : 'Auto-extract from text'}
+            {pending ? 'Working…' : 'Extract dates from PDF'}
           </button>
         )}
         <button type="button" disabled={pending} onClick={() => setAdding((v) => !v)} className={btnGhost}>
@@ -133,7 +133,7 @@ export function ReviewTable({
 
       {rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
-          No dates yet. Auto-extract from the pasted text, or add them by hand.
+          No dates yet. Extract them from the PDF, or add them by hand.
         </p>
       ) : (
         <ul className="space-y-2">

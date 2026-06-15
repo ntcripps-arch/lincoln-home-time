@@ -22,8 +22,11 @@ async function familyId(supabase: SupabaseClient): Promise<string | null> {
   return (data?.family_id as string) ?? null;
 }
 
-// Intake: create the upload (pending_review), then go to its review screen.
-export async function createUpload(input: { schoolYear: string; sourceText: string }): Promise<SchoolResult> {
+const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB (bucket cap is 25 MB; Claude allows 32 MB)
+
+// Intake: upload the calendar PDF, create the upload row (pending_review), then
+// go to its review screen where the admin runs vision extraction.
+export async function createUpload(formData: FormData): Promise<SchoolResult> {
   const supabase = createClient();
   const {
     data: { user },
@@ -32,21 +35,38 @@ export async function createUpload(input: { schoolYear: string; sourceText: stri
   const fid = await familyId(supabase);
   if (!fid) return { error: 'You are not part of a family.' };
 
-  const { data, error } = await supabase
+  const schoolYear = String(formData.get('schoolYear') ?? '').trim();
+  const file = formData.get('file');
+  if (!schoolYear) return { error: 'School year is required.' };
+  if (!(file instanceof File) || file.size === 0) return { error: 'Choose a PDF to upload.' };
+  if (file.type !== 'application/pdf') return { error: 'The calendar must be a PDF.' };
+  if (file.size > MAX_PDF_BYTES) return { error: 'That PDF is too large (max 25 MB).' };
+
+  const { data: upload, error: insErr } = await supabase
     .from('school_calendar_uploads')
-    .insert({
-      family_id: fid,
-      school_year: input.schoolYear.trim(),
-      source_text: input.sourceText.trim() || null,
-      status: 'pending_review',
-      uploaded_by: user.id,
-    })
+    .insert({ family_id: fid, school_year: schoolYear, status: 'pending_review', uploaded_by: user.id })
     .select('id')
     .single();
-  if (error) return { error: error.message };
+  if (insErr) return { error: insErr.message };
+
+  const path = `${fid}/${upload.id}.pdf`;
+  const { error: upErr } = await supabase.storage
+    .from('school-calendars')
+    .upload(path, await file.arrayBuffer(), { contentType: 'application/pdf', upsert: true });
+  if (upErr) {
+    // Don't leave an upload row with no file behind.
+    await supabase.from('school_calendar_uploads').delete().eq('id', upload.id);
+    return { error: upErr.message };
+  }
+
+  const { error: updErr } = await supabase
+    .from('school_calendar_uploads')
+    .update({ file_path: path })
+    .eq('id', upload.id);
+  if (updErr) return { error: updErr.message };
 
   revalidatePath('/school-calendars');
-  redirect(`/school-calendars/${data.id}`);
+  redirect(`/school-calendars/${upload.id}`);
 }
 
 export async function addDate(input: {
